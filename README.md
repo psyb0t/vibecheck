@@ -32,8 +32,9 @@ make sec               # govulncheck + semgrep
 make audit-compose     # check docker-compose.yml against the hardening floor
 ```
 
-Copy `.env.example` to `.env` and fill it in for a local run. The real `.env`
-is gitignored.
+`.env.example` records the planned service configuration. Those values become
+active as the corresponding implementation phases land. Real `.env` files are
+gitignored.
 
 ## Layout
 

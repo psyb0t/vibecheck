@@ -1,0 +1,43 @@
+name: pipeline
+
+on: [push]
+
+jobs:
+  code:
+    permissions:
+      contents: read
+      security-events: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/code-workflow.yml@master
+    with:
+      lint_command: "make lint"
+      test_command: "make test-coverage"
+      sec_command: "make sec"
+      generate_command: "make generate"
+      coverage_file: "coverage-percent.txt"
+      sarif_file: "sec.sarif"
+      sarif_category: "go"
+
+  badges:
+    needs: [code]
+    if: github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/create-badges.yml@master
+    with:
+      coverage: true
+
+  release:
+    needs: [code]
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/release-workflow.yml@master
+
+  # Publish the skill (.agents/skills/) to ClawHub. Tag pushes ONLY, after the
+  # checks pass.
+  publish-to-clawhub:
+    needs: [code]
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: psyb0t/reusable-github-workflows/.github/workflows/clawhub-publish.yml@master
+    secrets:
+      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}

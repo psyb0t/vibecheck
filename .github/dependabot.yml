@@ -1,0 +1,31 @@
+version: 2
+
+# Dependabot version updates, age-gated via `cooldown` -- the supply-chain
+# quarantine: a new release must sit public for N days before Dependabot will
+# propose it, so a freshly-published compromised version ages out before it can
+# reach a PR here. Higher-blast-radius bumps sit longer. My own packages are
+# excluded from the quarantine (no supply-chain risk from myself), so their
+# newest versions are proposed immediately.
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 7
+      default-days: 7
+      exclude:
+        - "github.com/psyb0t/*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      exclude:
+        - "psyb0t/*"

@@ -1,0 +1,246 @@
+# Servicepack Framework Makefile
+# This file contains all framework commands and gets included in the main Makefile
+# Users can override any of these commands in their main Makefile
+
+MIN_TEST_COVERAGE ?= 90
+
+SCRIPTS_DIR := scripts
+APP_NAME := $(shell head -n 1 go.mod | awk '{print $$2}' | awk -F'/' '{print $$NF}')
+DEV_IMAGE ?= $(APP_NAME)-dev
+UID := $(shell id -u)
+GID := $(shell id -g)
+DOCKER_SOCK := /var/run/docker.sock
+DOCKER_GID := $(shell stat -c '%g' $(DOCKER_SOCK) 2>/dev/null || echo 0)
+DEV_RUN_DIND_EXTRA_ARGS ?=
+
+DEV_RUN := docker run --rm --init \
+	--user $(UID):$(GID) \
+	-e HOME=/tmp \
+	-e GOPATH=/tmp/go \
+	-e GOCACHE=/tmp/go-cache \
+	-e GOMODCACHE=/tmp/go-mod-cache \
+	-e PKG \
+	-e MODULE \
+	-e TOOL \
+	-v "$(CURDIR):/work" \
+	-w /work \
+	$(DEV_IMAGE)
+
+# Integration tests use testcontainers, which drive the host docker daemon to
+# start sibling containers. --network host puts the test process in the host's
+# network namespace so those containers' host-published ports are reachable at
+# localhost:<mapped> (dev/CI test runs only, never prod). The workspace stays at
+# its host path so bind mounts a sibling container requests resolve correctly.
+DEV_RUN_DIND = docker run --rm --init \
+	--user $(UID):$(GID) \
+	--group-add $(DOCKER_GID) \
+	--network host \
+	-e HOME=/tmp \
+	-e GOPATH=/tmp/go \
+	-e GOCACHE=/tmp/go-cache \
+	-e GOMODCACHE=/tmp/go-mod-cache \
+	-e MIN_TEST_COVERAGE \
+	-e TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=$(DOCKER_SOCK) \
+	-e TESTCONTAINERS_RYUK_DISABLED=true \
+	$(DEV_RUN_DIND_EXTRA_ARGS) \
+	-v "$(CURDIR):$(CURDIR)" \
+	-v "$(DOCKER_SOCK):$(DOCKER_SOCK)" \
+	-w "$(CURDIR)" \
+	$(DEV_IMAGE)
+
+define find_script_path
+$(shell if [ -f "./$(SCRIPTS_DIR)/make/$(1)" ]; then \
+	echo "./$(SCRIPTS_DIR)/make/$(1)"; \
+else \
+	echo "./$(SCRIPTS_DIR)/make/servicepack/$(1)"; \
+fi)
+endef
+
+define run_dev_script
+$(DEV_RUN) bash "$(call find_script_path,$(1))"
+endef
+
+define run_dind_script
+$(DEV_RUN_DIND) bash "$(call find_script_path,$(1))"
+endef
+
+# Framework PHONY targets
+.PHONY: all dev-image shell pkg-lock pkg-add pkg-update pkg-upgrade pkg-remove \
+	pkg-add-tool pkg-remove-tool dep lint lint-fix format servicepack-reformat test test-unit \
+	test-integration test-coverage generate build clean \
+	service service-remove service-registration servicepack-update \
+	servicepack-update-review servicepack-update-merge servicepack-update-revert \
+	own backup backup-restore backup-clear docker-build docker-build-dev run-dev help
+
+# Default target
+all: dep lint-fix test-coverage build ## Run dep, lint-fix, test-coverage and build
+
+dev-image: ## Build the sandboxed development image
+	@bash "$(call find_script_path,docker_build_dev.sh)"
+
+shell: dev-image ## Open a shell in the development image
+	@$(DEV_RUN) sh
+
+pkg-lock: dev-image ## Tidy and vendor dependencies without changing versions
+	@$(DEV_RUN) bash -ceu 'go mod tidy; go mod vendor'
+
+pkg-add: export PKG := $(PKG)
+pkg-add: dev-image ## Add a module: make pkg-add PKG=module@version
+	@$(DEV_RUN) bash -ceu '\
+		[[ -n "$$PKG" ]] || { echo "PKG is required" >&2; exit 1; }; \
+		bash scripts/check-go-age.sh "$$PKG"; \
+		GOFLAGS=-mod=mod go get "$$PKG"; \
+		go mod tidy; \
+		go mod vendor'
+
+pkg-update: export PKG := $(PKG)
+pkg-update: dev-image ## Update one module: make pkg-update PKG=module
+	@$(DEV_RUN) bash -ceu '\
+		[[ -n "$$PKG" ]] || { echo "PKG is required" >&2; exit 1; }; \
+		version="$$(GOFLAGS=-mod=mod go list -m -f "{{.Version}}" "$$PKG@latest")"; \
+		bash scripts/check-go-age.sh "$$PKG@$$version"; \
+		GOFLAGS=-mod=mod go get "$$PKG@$$version"; \
+		go mod tidy; \
+		go mod vendor'
+
+pkg-upgrade: dev-image ## Upgrade every direct module after the age gate
+	@$(DEV_RUN) bash -ceu '\
+		while IFS= read -r module; do \
+			version="$$(GOFLAGS=-mod=mod go list -m -f "{{.Version}}" "$$module@latest")"; \
+			bash scripts/check-go-age.sh "$$module@$$version"; \
+			GOFLAGS=-mod=mod go get "$$module@$$version"; \
+		done < <(go list -m -f "{{if not .Indirect}}{{.Path}}{{end}}" all | sed "/^$$/d"); \
+		go mod tidy; \
+		go mod vendor'
+
+pkg-remove: export PKG := $(PKG)
+pkg-remove: dev-image ## Remove a module: make pkg-remove PKG=module
+	@$(DEV_RUN) bash -ceu '\
+		[[ -n "$$PKG" ]] || { echo "PKG is required" >&2; exit 1; }; \
+		GOFLAGS= go mod edit -droprequire "$$PKG"; \
+		go mod tidy; \
+		go mod vendor'
+
+pkg-add-tool: export MODULE := $(MODULE)
+pkg-add-tool: export TOOL := $(TOOL)
+pkg-add-tool: dev-image ## Add a Go tool: make pkg-add-tool MODULE=module@version TOOL=package
+	@$(DEV_RUN) bash -ceu '\
+		[[ -n "$$MODULE" ]] || { echo "MODULE is required" >&2; exit 1; }; \
+		[[ -n "$$TOOL" ]] || { echo "TOOL is required" >&2; exit 1; }; \
+		module="$${MODULE%@*}"; \
+		version="$${MODULE##*@}"; \
+		[[ "$$module" != "$$MODULE" && -n "$$version" ]] || { echo "MODULE must be module@version" >&2; exit 1; }; \
+		bash scripts/check-go-age.sh "$$module@$$version"; \
+		GOFLAGS=-mod=mod go get "$$MODULE"; \
+		GOFLAGS= go mod edit -tool="$$TOOL"; \
+		go mod tidy; \
+		go mod vendor'
+
+pkg-remove-tool: export TOOL := $(TOOL)
+pkg-remove-tool: dev-image ## Remove a Go tool: make pkg-remove-tool TOOL=package
+	@$(DEV_RUN) bash -ceu '\
+		[[ -n "$$TOOL" ]] || { echo "TOOL is required" >&2; exit 1; }; \
+		GOFLAGS= go mod edit -droptool="$$TOOL"; \
+		go mod tidy; \
+		go mod vendor'
+
+dep: pkg-lock ## Tidy and vendor dependencies
+
+lint: ## Lint all Golang files
+	@$(MAKE) dev-image
+	@$(call run_dev_script,lint.sh)
+
+lint-fix: ## Lint all Golang files and fix
+	@$(MAKE) dev-image
+	@$(call run_dev_script,lint_fix.sh)
+
+format: dev-image ## Format Go source files
+	@$(DEV_RUN) sh -ceu 'go tool gofumpt -w .; shfmt -w $$(find scripts -type f -name "*.sh")'
+
+# Internal: used by servicepack-update after the module-path rewrite. Runs the
+# project's own formatters (gci/gofumpt/goimports via golangci-lint, i.e. exactly
+# what `make lint` checks) over just the files in REFORMAT_FILES, so a renamed
+# import path lands correctly sorted. Scoped to a file list on purpose: never
+# touches downstream-owned or generated code.
+servicepack-reformat: dev-image ## Re-format the files named in REFORMAT_FILES (internal, used by servicepack-update)
+	@[ -n "$(REFORMAT_FILES)" ] && $(DEV_RUN) go tool golangci-lint fmt $(REFORMAT_FILES) || true
+
+test: ## Run all tests
+	@$(MAKE) dev-image
+	@$(call run_dind_script,test.sh)
+
+test-unit: dev-image ## Run the framework's unit test suite
+	@$(DEV_RUN) go test -race ./...
+
+test-integration: dev-image ## Run integration tests without cached results
+	@$(DEV_RUN_DIND) go test -race -count=1 -timeout=600s ./...
+
+test-coverage: ## Run tests with coverage check. Fails if coverage is below the threshold.
+	@$(MAKE) dev-image
+	@MIN_TEST_COVERAGE=$(MIN_TEST_COVERAGE) $(call run_dind_script,test_coverage.sh)
+
+sec: dev-image ## Full security scan (govulncheck + semgrep) writing a merged SARIF to sec.sarif
+	@$(call run_dev_script,sec.sh)
+
+generate: dev-image ## Regenerate all generated Go code
+	@$(DEV_RUN) go generate ./...
+
+build: ## Build the app binary using Docker
+	@bash "$(call find_script_path,build.sh)"
+
+clean: ## Clean build artifacts and coverage files
+	@$(MAKE) dev-image
+	@$(call run_dev_script,clean.sh)
+
+# Docker commands
+docker-build: ## Build the production Docker image
+	@bash "$(call find_script_path,docker_build.sh)"
+
+docker-build-dev: ## Build the development Docker image
+	@bash "$(call find_script_path,docker_build_dev.sh)"
+
+run-dev: ## Run in the development Docker image
+	@bash "$(call find_script_path,run_dev.sh)"
+
+# Service management
+service: ## Create a new service skeleton. Usage: make service NAME=myservice
+	@$(MAKE) dev-image
+	@$(DEV_RUN) bash "$(call find_script_path,service.sh)" "$(NAME)"
+
+service-remove: ## Remove a service. Usage: make service-remove NAME=myservice
+	@$(MAKE) dev-image
+	@$(DEV_RUN) bash "$(call find_script_path,service_remove.sh)" "$(NAME)"
+
+service-registration: ## Regenerate service registration file
+	@$(MAKE) dev-image
+	@$(call run_dev_script,service_registration.sh)
+
+# Framework management
+servicepack-update: ## Update servicepack framework to latest version
+	@bash "$(call find_script_path,servicepack_update.sh)"
+
+servicepack-update-review: ## Review pending servicepack update changes
+	@bash "$(call find_script_path,servicepack_update_review.sh)"
+
+servicepack-update-merge: ## Merge pending servicepack update
+	@bash "$(call find_script_path,servicepack_update_merge.sh)"
+
+servicepack-update-revert: ## Revert pending servicepack update
+	@bash "$(call find_script_path,servicepack_update_revert.sh)"
+
+own: ## Make this project your own. Usage: make own MODNAME=github.com/foo/bar
+	@bash "$(call find_script_path,own.sh)" "$(MODNAME)"
+
+# Backup management
+backup: ## Create backup of the current project
+	@bash "$(call find_script_path,backup.sh)"
+
+backup-restore: ## Restore from backup. Usage: make backup-restore [BACKUP=filename.tar.gz] (defaults to latest)
+	@bash "$(call find_script_path,backup_restore.sh)" "$(BACKUP)"
+
+backup-clear: ## Delete all backup files
+	@bash "$(call find_script_path,backup_clear.sh)"
+
+# Help
+help: ## Display this help message
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":"}; {filename=$$1; sub(/.*\//, "", filename); rule=$$2; desc=$$3; gsub(/.*?## /, "", desc); printf "\033[36m%-30s\033[0m \033[90m[%s]\033[0m %s\n", rule, filename, desc}' | sort

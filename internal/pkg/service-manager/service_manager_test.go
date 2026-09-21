@@ -1,0 +1,1454 @@
+package servicemanager
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/psyb0t/ctxscope"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+var (
+	errTestService     = errors.New("test error")
+	errTestServiceStop = errors.New("stop error")
+)
+
+const (
+	// runHangGuard bounds a Run that should have been ended by Stop. It is
+	// deliberately far longer than any real wait: a test that reaches it has
+	// hung, and every legitimate wait here is synchronized explicitly instead.
+	runHangGuard = 30 * time.Second
+
+	// startedPollInterval is how often the start-group condition is rechecked.
+	startedPollInterval = time.Millisecond
+)
+
+// waitForStartedServices blocks until the manager has registered `want`
+// services into start groups.
+//
+// That is the precondition Stop actually has: it iterates startGroups, and a
+// group lands there only after every service goroutine has launched and
+// waitGroupReady has returned. A Stop arriving before the append finds nothing
+// to stop, so every "should have Stop called" assertion fails.
+//
+// This replaced a time.Sleep that stood in for the same condition. The sleep
+// was load-bearing rather than cosmetic — setting it to zero fails these tests
+// outright — which meant any load that delayed the manager past it failed the
+// suite for reasons unrelated to the code under test. It read as a flake in a
+// consumer's CI, one package deep in an unrelated repo.
+func waitForStartedServices(t *testing.T, sm *ServiceManager, want int) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		sm.startGroupsMu.RLock()
+		defer sm.startGroupsMu.RUnlock()
+
+		started := 0
+		for _, group := range sm.startGroups {
+			started += len(group)
+		}
+
+		return started >= want
+	}, runHangGuard, startedPollInterval,
+		"manager never registered %d service(s) into a start group", want)
+}
+
+// waitForRunCalled blocks until every mock service has entered Run. Waiting for
+// it IS the assertion that they all started, so there is nothing left to check
+// afterwards.
+//
+// Like waitForStartedServices this replaced a sleep, and the same proof
+// applies: zeroing that sleep failed these tests outright, so it was the
+// synchronization rather than a courtesy pause.
+func waitForRunCalled(t *testing.T, services []Service) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		for _, svc := range services {
+			mockSvc, ok := svc.(*MockService)
+			if ok && !mockSvc.WasRunCalled() {
+				return false
+			}
+		}
+
+		return true
+	}, runHangGuard, startedPollInterval,
+		"not every service reached Run")
+}
+
+func TestGetInstance(t *testing.T) {
+	// Reset singleton before test
+	ResetInstance()
+
+	sm1 := GetInstance()
+	assert.NotNil(t, sm1)
+	assert.NotNil(t, sm1.services)
+	assert.NotNil(t, sm1.services)
+	assert.Equal(t, 0, len(sm1.services))
+
+	// Test that subsequent calls return the same instance
+	sm2 := GetInstance()
+	assert.Same(t, sm1, sm2)
+
+	// Test that NewServiceManager also returns the same instance
+	sm3 := GetInstance()
+	assert.Same(t, sm1, sm3)
+}
+
+func TestServiceManager_Add(t *testing.T) {
+	testCases := []struct {
+		name     string
+		services []Service
+		expected int
+	}{
+		{
+			name:     "add single service",
+			services: []Service{NewMockService("test1")},
+			expected: 1,
+		},
+		{
+			name: "add multiple services",
+			services: []Service{
+				NewMockService("test1"), NewMockService("test2"),
+			},
+			expected: 2,
+		},
+		{
+			name: "add services with duplicate names overwrites",
+			services: []Service{
+				NewMockService("test1"), NewMockService("test1"),
+			},
+			expected: 1,
+		},
+		{
+			name:     "add no services",
+			services: []Service{},
+			expected: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			sm.Add(tc.services...)
+
+			assert.Equal(t, tc.expected, len(sm.services))
+
+			// Verify all services are accessible by name
+			for _, svc := range tc.services {
+				storedSvc, exists := sm.services[svc.Name()]
+				if tc.expected > 0 {
+					assert.True(t, exists)
+					assert.Equal(t, svc.Name(), storedSvc.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestWithServiceScope(t *testing.T) {
+	ctx := withServiceScope(context.Background(), "test-service")
+
+	assert.Equal(t, "test-service", ctxscope.Get(ctx)[scopeKeyService])
+}
+
+func TestServiceManager_Run(t *testing.T) {
+	// contextSetup is gone. Three rows used it to spawn a goroutine that slept
+	// 10ms and then cancelled, which raced the manager: if the services had not
+	// started inside that window the run ended before they ever reached Run,
+	// and the "should have Run called" assertion failed for reasons that had
+	// nothing to do with the manager. The other two rows returned a plain
+	// WithCancel, so the field's only real content WAS the race. Cancellation
+	// now happens in the stopMethod switch below, after the wait — which is
+	// what "context" was always supposed to mean.
+	testCases := []struct {
+		name        string
+		services    []Service
+		expectError bool
+		stopMethod  string // "context", "stop_method", "service_error"
+	}{
+		{
+			name:        "run single service with context cancellation",
+			services:    []Service{NewMockService("test1")},
+			expectError: false,
+			stopMethod:  "context",
+		},
+		{
+			name: "run multiple services with context cancellation",
+			services: []Service{
+				NewMockService("test1"), NewMockService("test2"),
+			},
+			expectError: false,
+			stopMethod:  "context",
+		},
+		{
+			name: "run service with error",
+			services: []Service{
+				NewMockService("failing").WithRunError(errTestService),
+			},
+			expectError: true,
+			stopMethod:  "service_error",
+		},
+		{
+			name:        "run with stop method",
+			services:    []Service{NewMockService("test1")},
+			expectError: false,
+			stopMethod:  "stop_method",
+		},
+		{
+			name:        "run with no services",
+			services:    []Service{},
+			expectError: true, // No services means "no enabled services"
+			stopMethod:  "context",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			sm.Add(tc.services...)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			runDone := make(chan error, 1)
+
+			go func() {
+				runDone <- sm.Run(ctx)
+			}()
+
+			// Waiting for this IS the assertion that every service started, so
+			// nothing is re-checked afterwards. Skipped for the rows that never
+			// reach Run: an erroring service and the no-services case.
+			if !tc.expectError && len(tc.services) > 0 {
+				waitForRunCalled(t, tc.services)
+			}
+
+			// Execute stop method
+			switch tc.stopMethod {
+			case "stop_method":
+				sm.Stop(ctx)
+			case "context":
+				cancel()
+			case "service_error":
+				// Service will error naturally
+			}
+
+			// Wait for Run to complete
+			select {
+			case err := <-runDone:
+				if tc.expectError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			case <-time.After(runHangGuard):
+				t.Fatal("ServiceManager.Run() did not complete within timeout")
+			}
+		})
+	}
+}
+
+func TestServiceManager_Stop(t *testing.T) {
+	testCases := []struct {
+		name             string
+		services         []Service
+		stopTwice        bool
+		expectStopErrors bool
+	}{
+		{
+			name:      "stop single service",
+			services:  []Service{NewMockService("test1")},
+			stopTwice: false,
+		},
+		{
+			name: "stop multiple services",
+			services: []Service{
+				NewMockService("test1"), NewMockService("test2"),
+			},
+			stopTwice: false,
+		},
+		{
+			name:      "stop same manager twice (sync.Once behavior)",
+			services:  []Service{NewMockService("test1")},
+			stopTwice: true,
+		},
+		{
+			name: "stop service with error",
+			services: []Service{
+				NewMockService("failing").WithStopError(errTestServiceStop),
+			},
+			expectStopErrors: true,
+		},
+		{
+			name:     "stop with no services",
+			services: []Service{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			sm.Add(tc.services...)
+
+			ctx := context.Background()
+
+			// First run the services if there are any, so the manager
+			// registers them and Stop has something to stop.
+			if len(tc.services) > 0 {
+				// A hang guard, NOT the synchronization. It used to be 10ms,
+				// which made it both: the deadline could fire before Stop was
+				// even called, ending the run for the wrong reason. Stop
+				// cancels the manager's context and closes each mock's stopCh,
+				// so Run returns on its own and this bound is never reached in
+				// a passing test.
+				runCtx, cancel := context.WithTimeout(ctx, runHangGuard)
+				defer cancel()
+
+				// Run services in background so they can be stopped
+				runDone := make(chan error, 1)
+
+				go func() {
+					runDone <- sm.Run(runCtx)
+				}()
+
+				waitForStartedServices(t, sm, len(tc.services))
+
+				// Now stop them
+				sm.Stop(ctx)
+
+				// Wait for run to complete
+				<-runDone
+			} else {
+				// For empty services test, just call stop
+				sm.Stop(ctx)
+			}
+
+			// Verify all services had Stop called (only for non-empty services)
+			if len(tc.services) > 0 {
+				for _, svc := range tc.services {
+					if mockSvc, ok := svc.(*MockService); ok {
+						assert.True(t, mockSvc.WasStopCalled(),
+							"Service %s should have Stop called", mockSvc.name)
+					}
+				}
+			}
+
+			// Second stop (if testing sync.Once)
+			if tc.stopTwice {
+				// Reset the stop called flag for testing
+				for _, svc := range tc.services {
+					if mockSvc, ok := svc.(*MockService); ok {
+						atomic.StoreInt32(&mockSvc.stopCalled, 0)
+					}
+				}
+
+				// Call stop again - this should be a no-op due to sync.Once
+				sm.Stop(ctx)
+
+				// Services should NOT be stopped again due to sync.Once
+				for _, svc := range tc.services {
+					if mockSvc, ok := svc.(*MockService); ok {
+						assert.False(t, mockSvc.WasStopCalled(),
+							"Service %s should NOT have Stop called again",
+							mockSvc.name)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestServiceManager_Concurrency(t *testing.T) {
+	t.Run("concurrent add and run", func(t *testing.T) {
+		ResetInstance()
+
+		sm := GetInstance()
+
+		// Add services concurrently
+		done := make(chan bool, 10)
+
+		for i := range 10 {
+			go func(id int) {
+				svc := NewMockService(fmt.Sprintf("service%d", id))
+				sm.Add(svc)
+
+				done <- true
+			}(i)
+		}
+
+		// Wait for all adds to complete
+		for range 10 {
+			<-done
+		}
+
+		// Verify all services were added
+		assert.Equal(t, 10, len(sm.services))
+
+		// Run the manager
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 100*time.Millisecond,
+		)
+		defer cancel()
+
+		err := sm.Run(ctx)
+		assert.NoError(t, err)
+	})
+}
+
+func TestResolveOrder(t *testing.T) {
+	testCases := []struct {
+		name        string
+		services    map[string]Service
+		expectError error
+		groupCount  int
+	}{
+		{
+			name: "no dependencies - single group",
+			services: map[string]Service{
+				"a": NewTestService("a"),
+				"b": NewTestService("b"),
+			},
+			groupCount: 1,
+		},
+		{
+			name: "linear chain a->b->c",
+			services: map[string]Service{
+				"c": NewTestService("c"),
+				"b": NewDependentMockService("b", "c"),
+				"a": NewDependentMockService("a", "b"),
+			},
+			groupCount: 3,
+		},
+		{
+			name: "diamond a->b,c b->d c->d",
+			services: map[string]Service{
+				"d": NewTestService("d"),
+				"b": NewDependentMockService("b", "d"),
+				"c": NewDependentMockService("c", "d"),
+				"a": NewFullMockService("a").
+					WithDependencies("b", "c"),
+			},
+			groupCount: 3,
+		},
+		{
+			name: "cycle a->b b->a",
+			services: map[string]Service{
+				"a": NewDependentMockService("a", "b"),
+				"b": NewDependentMockService("b", "a"),
+			},
+			expectError: ErrCyclicDependency,
+		},
+		{
+			name: "self dependency",
+			services: map[string]Service{
+				"a": NewDependentMockService("a", "a"),
+			},
+			expectError: ErrCyclicDependency,
+		},
+		{
+			name: "missing dep skipped (external)",
+			services: map[string]Service{
+				"a": NewDependentMockService(
+					"a", "nonexistent",
+				),
+			},
+			groupCount: 1,
+		},
+		{
+			name: "mixed deps and no deps",
+			services: map[string]Service{
+				"db":  NewTestService("db"),
+				"api": NewDependentMockService("api", "db"),
+				"log": NewTestService("log"),
+			},
+			groupCount: 2,
+		},
+		{
+			name: "single service no deps",
+			services: map[string]Service{
+				"solo": NewTestService("solo"),
+			},
+			groupCount: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			groups, err := resolveOrder(tc.services)
+
+			if tc.expectError != nil {
+				assert.ErrorIs(t, err, tc.expectError)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Len(t, groups, tc.groupCount)
+
+			// Verify all services are present
+			total := 0
+			for _, g := range groups {
+				total += len(g)
+			}
+
+			assert.Equal(t, len(tc.services), total)
+		})
+	}
+}
+
+func TestServiceManager_RunWithRetries(t *testing.T) {
+	testCases := []struct {
+		name         string
+		setupService func() Service
+		expectError  bool
+		expectedRuns int
+		cancelAfter  time.Duration
+	}{
+		{
+			name: "service succeeds first try",
+			setupService: func() Service {
+				svc := NewRetryableMockService("ok", 2)
+				// No errors - will block on ctx
+				return svc
+			},
+			expectError:  false,
+			expectedRuns: 1,
+			cancelAfter:  20 * time.Millisecond,
+		},
+		{
+			name: "service fails all retries",
+			setupService: func() Service {
+				svc := NewRetryableMockService("fail", 2)
+				svc.WithRunError(errTestService)
+
+				return svc
+			},
+			expectError:  true,
+			expectedRuns: 3, // 1 + 2 retries
+		},
+		{
+			name: "service fails then succeeds",
+			setupService: func() Service {
+				svc := NewRetryableMockService("retry", 2)
+				svc.WithRunErrors(
+					errTestService,
+					errTestService,
+					nil, // third attempt succeeds
+				)
+
+				return svc
+			},
+			expectError:  false,
+			expectedRuns: 3,
+			cancelAfter:  50 * time.Millisecond,
+		},
+		{
+			name: "context cancelled during retry",
+			setupService: func() Service {
+				svc := NewRetryableMockService(
+					"ctxcancel", 10,
+				)
+				svc.WithRunError(errTestService)
+				svc.WithRunDelay(
+					50 * time.Millisecond,
+				)
+
+				return svc
+			},
+			expectError:  false,
+			expectedRuns: -1,
+			cancelAfter:  30 * time.Millisecond,
+		},
+		{
+			name: "retry with delay",
+			setupService: func() Service {
+				svc := NewRetryableMockService(
+					"delayed", 1,
+				)
+				svc.WithRetryDelay(
+					10 * time.Millisecond,
+				)
+				svc.WithRunErrors(
+					errTestService, nil,
+				)
+
+				return svc
+			},
+			expectError:  false,
+			expectedRuns: 2,
+			cancelAfter:  200 * time.Millisecond,
+		},
+		{
+			name: "ctx cancelled during retry delay",
+			setupService: func() Service {
+				svc := NewRetryableMockService(
+					"delaycancel", 10,
+				)
+				svc.WithRetryDelay(time.Second)
+				svc.WithRunError(errTestService)
+
+				return svc
+			},
+			expectError:  false,
+			expectedRuns: -1,
+			cancelAfter:  50 * time.Millisecond,
+		},
+		{
+			name: "non-retryable service fails",
+			setupService: func() Service {
+				return NewMockService("norety").
+					WithRunError(errTestService)
+			},
+			expectError:  true,
+			expectedRuns: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			svc := tc.setupService()
+			sm.Add(svc)
+
+			ctx, cancel := context.WithCancel(
+				context.Background(),
+			)
+			defer cancel()
+
+			if tc.cancelAfter > 0 {
+				go func() {
+					time.Sleep(tc.cancelAfter)
+					cancel()
+				}()
+			}
+
+			runDone := make(chan error, 1)
+
+			go func() {
+				runDone <- sm.Run(ctx)
+			}()
+
+			select {
+			case err := <-runDone:
+				if tc.expectError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out")
+			}
+
+			if tc.expectedRuns < 0 {
+				return
+			}
+
+			switch s := svc.(type) {
+			case *RetryableMockService:
+				assert.Equal(
+					t, tc.expectedRuns, s.RunCount(),
+				)
+			case *MockService:
+				assert.Equal(
+					t, tc.expectedRuns, s.RunCount(),
+				)
+			}
+		})
+	}
+}
+
+func TestServiceManager_RunWithAllowedFailure(t *testing.T) {
+	testCases := []struct {
+		name        string
+		services    []Service
+		expectError bool
+		cancelAfter time.Duration
+	}{
+		{
+			name: "allowed failure does not kill manager",
+			services: []Service{
+				func() Service {
+					s := NewAllowedFailureMockService(
+						"fail-ok",
+					)
+					s.WithRunError(errTestService)
+
+					return s
+				}(),
+				NewMockService("healthy"),
+			},
+			expectError: false,
+			cancelAfter: 50 * time.Millisecond,
+		},
+		{
+			name: "non-allowed failure kills manager",
+			services: []Service{
+				NewMockService("fail-bad").
+					WithRunError(errTestService),
+				NewMockService("healthy2"),
+			},
+			expectError: true,
+		},
+		{
+			name: "allowed failure with retries exhausted",
+			services: []Service{
+				func() Service {
+					s := NewFullMockService("retry-fail")
+					s.WithMaxRetries(1)
+					s.WithAllowFailure(true)
+					s.WithRunError(
+						errTestService,
+					)
+
+					return s
+				}(),
+				NewMockService("healthy3"),
+			},
+			expectError: false,
+			cancelAfter: 50 * time.Millisecond,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			sm.Add(tc.services...)
+
+			ctx, cancel := context.WithCancel(
+				context.Background(),
+			)
+			defer cancel()
+
+			if tc.cancelAfter > 0 {
+				go func() {
+					time.Sleep(tc.cancelAfter)
+					cancel()
+				}()
+			}
+
+			runDone := make(chan error, 1)
+
+			go func() {
+				runDone <- sm.Run(ctx)
+			}()
+
+			select {
+			case err := <-runDone:
+				if tc.expectError {
+					assert.Error(t, err)
+
+					return
+				}
+
+				assert.NoError(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out")
+			}
+		})
+	}
+}
+
+func TestServiceManager_RunWithDependencies(t *testing.T) {
+	testCases := []struct {
+		name        string
+		services    []Service
+		expectError bool
+		errorIs     error
+		cancelAfter time.Duration
+	}{
+		{
+			name: "dependent starts after dependency",
+			services: []Service{
+				NewTestService("db"),
+				NewDependentMockService("api", "db"),
+			},
+			expectError: false,
+			cancelAfter: 50 * time.Millisecond,
+		},
+		{
+			name: "cyclic dependency error",
+			services: []Service{
+				NewDependentMockService("a", "b"),
+				NewDependentMockService("b", "a"),
+			},
+			expectError: true,
+			errorIs:     ErrCyclicDependency,
+		},
+		{
+			name: "missing dep runs anyway (external)",
+			services: []Service{
+				NewDependentMockService(
+					"api", "nonexistent",
+				),
+			},
+			expectError: false,
+			cancelAfter: 20 * time.Millisecond,
+		},
+		{
+			name: "no deps backward compat",
+			services: []Service{
+				NewTestService("a"),
+				NewTestService("b"),
+				NewTestService("c"),
+			},
+			expectError: false,
+			cancelAfter: 20 * time.Millisecond,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			sm.Add(tc.services...)
+
+			ctx, cancel := context.WithCancel(
+				context.Background(),
+			)
+			defer cancel()
+
+			if tc.cancelAfter > 0 {
+				go func() {
+					time.Sleep(tc.cancelAfter)
+					cancel()
+				}()
+			}
+
+			runDone := make(chan error, 1)
+
+			go func() {
+				runDone <- sm.Run(ctx)
+			}()
+
+			select {
+			case err := <-runDone:
+				if tc.expectError {
+					assert.Error(t, err)
+
+					if tc.errorIs != nil {
+						assert.ErrorIs(
+							t, err, tc.errorIs,
+						)
+					}
+
+					return
+				}
+
+				assert.NoError(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out")
+			}
+		})
+	}
+}
+
+type panicService struct {
+	name  string
+	value any
+}
+
+func (p *panicService) Name() string { return p.name }
+
+func (p *panicService) Run(
+	_ context.Context,
+) error {
+	panic(p.value)
+}
+
+func (p *panicService) Stop(
+	_ context.Context,
+) error {
+	return nil
+}
+
+type stopTrackingService struct {
+	Service
+	onStop func()
+}
+
+func (s *stopTrackingService) Stop(
+	ctx context.Context,
+) error {
+	s.onStop()
+
+	return s.Service.Stop(ctx)
+}
+
+type dependentStopTrackingService struct {
+	stopTrackingService
+	deps []string
+}
+
+func (d *dependentStopTrackingService) Dependencies() []string {
+	return d.deps
+}
+
+// runReturnTimeout bounds only a FAILING run of the test below. The bug it
+// guards against hangs forever, so any finite bound proves the point; this one
+// is generous enough not to trip on a loaded machine.
+const runReturnTimeout = 10 * time.Second
+
+// TestServiceManager_RunWithConcurrentFailures proves Run still returns when
+// more than one non-allowed service fails at the same time.
+//
+// errCh has capacity 1 and Run receives from it at most once.
+// handleServiceError used a plain blocking send, so a later concurrent failure
+// parked on that
+// send forever, and Run's `defer s.wg.Wait()` then never returned — a hung
+// process instead of the reported error the README promises. A bare send is not
+// selectable, so context cancellation could not rescue it either.
+func TestServiceManager_RunWithConcurrentFailures(t *testing.T) {
+	testCases := []struct {
+		name         string
+		serviceCount int
+	}{
+		{"two services fail at once", 2},
+		{"three services fail at once", 3},
+		{"ten services fail at once", 10},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+
+			for i := range tc.serviceCount {
+				sm.Add(NewMockService(fmt.Sprintf("failer-%d", i)).
+					WithRunError(errTestService))
+			}
+
+			done := make(chan error, 1)
+
+			go func() {
+				done <- sm.Run(t.Context())
+			}()
+
+			select {
+			case err := <-done:
+				assert.ErrorIs(t, err, errTestService)
+			case <-time.After(runReturnTimeout):
+				t.Fatal(
+					"Run never returned: concurrent failures deadlocked it")
+			}
+		})
+	}
+}
+
+func TestServiceManager_PanicRecovery(t *testing.T) {
+	testCases := []struct {
+		name       string
+		panicValue any
+	}{
+		{"string panic", "oh no"},
+		{"error panic", errTestService},
+		{"int panic", 42},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			sm.Add(&panicService{
+				name:  "panicker",
+				value: tc.panicValue,
+			})
+
+			ctx := t.Context()
+
+			done := make(chan error, 1)
+
+			go func() {
+				done <- sm.Run(ctx)
+			}()
+
+			select {
+			case err := <-done:
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrServicePanic)
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out")
+			}
+		})
+	}
+}
+
+func TestServiceManager_ReverseOrderShutdown(
+	t *testing.T,
+) {
+	ResetInstance()
+
+	sm := GetInstance()
+
+	var (
+		stopOrder []string
+		mu        sync.Mutex
+	)
+
+	recordStop := func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		stopOrder = append(stopOrder, name)
+	}
+
+	db := &stopTrackingService{
+		Service: NewTestService("db"),
+		onStop:  func() { recordStop("db") },
+	}
+
+	api := &dependentStopTrackingService{
+		stopTrackingService: stopTrackingService{
+			Service: NewTestService("api"),
+			onStop:  func() { recordStop("api") },
+		},
+		deps: []string{"db"},
+	}
+
+	sm.Add(db, api)
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	defer cancel()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := sm.Run(ctx)
+	assert.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Len(t, stopOrder, 2)
+	assert.Equal(t, "api", stopOrder[0],
+		"api should stop before db")
+	assert.Equal(t, "db", stopOrder[1],
+		"db should stop after api")
+}
+
+func TestServiceManager_ReadyNotifier(t *testing.T) {
+	ResetInstance()
+
+	sm := GetInstance()
+
+	var (
+		startOrder []string
+		mu         sync.Mutex
+	)
+
+	record := func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		startOrder = append(startOrder, name)
+	}
+
+	// db: signals ready after 50ms
+	db := NewReadyMockService("db")
+	db.WithOnRun(func() {
+		record("db")
+
+		// Simulate startup delay then signal ready
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			db.SignalReady()
+		}()
+	})
+
+	// api: depends on db, should not start
+	// until db signals ready
+	api := NewReadyMockService("api", "db")
+	api.WithOnRun(func() {
+		record("api")
+		api.SignalReady()
+	})
+
+	sm.Add(db, api)
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	defer cancel()
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+
+	err := sm.Run(ctx)
+	assert.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Len(t, startOrder, 2)
+	assert.Equal(t, "db", startOrder[0])
+	assert.Equal(t, "api", startOrder[1])
+}
+
+func TestServiceManager_ReadyNotifierNotImplemented(
+	t *testing.T,
+) {
+	ResetInstance()
+
+	sm := GetInstance()
+
+	// Plain services without ReadyNotifier
+	// should start immediately
+	a := NewTestService("a")
+	b := NewTestService("b")
+
+	sm.Add(a, b)
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	defer cancel()
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	err := sm.Run(ctx)
+	assert.NoError(t, err)
+}
+
+type commanderService struct {
+	*MockService
+}
+
+func (c *commanderService) Commands() []*cobra.Command {
+	return []*cobra.Command{
+		{
+			Use:   "do-stuff",
+			Short: "does stuff",
+		},
+	}
+}
+
+func TestServiceManager_Commands(t *testing.T) {
+	testCases := []struct {
+		name      string
+		factories map[string]ServiceFactory
+		expected  int
+	}{
+		{
+			name: "service with commands",
+			factories: map[string]ServiceFactory{
+				"svc": func() (Service, error) {
+					return &commanderService{
+						MockService: NewMockService("svc"),
+					}, nil
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "service without commands",
+			factories: map[string]ServiceFactory{
+				"plain": func() (Service, error) {
+					return NewTestService("plain"), nil
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "mixed",
+			factories: map[string]ServiceFactory{
+				"cmd1": func() (Service, error) {
+					return &commanderService{
+						MockService: NewMockService("cmd1"),
+					}, nil
+				},
+				"plain": func() (Service, error) {
+					return NewTestService("plain"), nil
+				},
+				"cmd2": func() (Service, error) {
+					return &commanderService{
+						MockService: NewMockService("cmd2"),
+					}, nil
+				},
+			},
+			expected: 3,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			for name, factory := range tc.factories {
+				sm.Register(name, factory)
+			}
+
+			cmds := sm.Commands()
+			assert.Len(t, cmds, tc.expected)
+
+			for _, cmd := range cmds {
+				assert.NotEmpty(t, cmd.Use)
+			}
+		})
+	}
+}
+
+func TestServiceManager_Register(t *testing.T) {
+	ResetInstance()
+
+	sm := GetInstance()
+	sm.Register("svc1", func() (Service, error) {
+		return NewTestService("svc1"), nil
+	})
+	sm.Register("svc2", func() (Service, error) {
+		return NewTestService("svc2"), nil
+	})
+
+	names := sm.RegisteredNames()
+	assert.Len(t, names, 2)
+	assert.Contains(t, names, "svc1")
+	assert.Contains(t, names, "svc2")
+}
+
+func TestServiceManager_Instantiate(t *testing.T) {
+	testCases := []struct {
+		name        string
+		factories   map[string]ServiceFactory
+		target      string
+		expectName  string
+		expectError error
+	}{
+		{
+			name: "success",
+			factories: map[string]ServiceFactory{
+				"svc": func() (Service, error) {
+					return NewTestService("svc"), nil
+				},
+			},
+			target:     "svc",
+			expectName: "svc",
+		},
+		{
+			name:        "not found",
+			factories:   map[string]ServiceFactory{},
+			target:      "nope",
+			expectError: ErrServiceNotFound,
+		},
+		{
+			name: "factory error",
+			factories: map[string]ServiceFactory{
+				"bad": func() (Service, error) {
+					return nil, errTestService
+				},
+			},
+			target:      "bad",
+			expectError: errTestService,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			for name, factory := range tc.factories {
+				sm.Register(name, factory)
+			}
+
+			svc, err := sm.Instantiate(tc.target)
+			if tc.expectError != nil {
+				assert.ErrorIs(t, err, tc.expectError)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectName, svc.Name())
+		})
+	}
+}
+
+func TestServiceManager_InstantiateAll(t *testing.T) {
+	testCases := []struct {
+		name            string
+		servicesEnabled string
+		factories       map[string]ServiceFactory
+		expectCount     int
+		expectError     bool
+	}{
+		{
+			name: "all enabled",
+			factories: map[string]ServiceFactory{
+				"a": func() (Service, error) {
+					return NewTestService("a"), nil
+				},
+				"b": func() (Service, error) {
+					return NewTestService("b"), nil
+				},
+			},
+			expectCount: 2,
+		},
+		{
+			name:            "filtered",
+			servicesEnabled: "a",
+			factories: map[string]ServiceFactory{
+				"a": func() (Service, error) {
+					return NewTestService("a"), nil
+				},
+				"b": func() (Service, error) {
+					return NewTestService("b"), nil
+				},
+			},
+			expectCount: 1,
+		},
+		{
+			name: "factory error",
+			factories: map[string]ServiceFactory{
+				"bad": func() (Service, error) {
+					return nil, errTestService
+				},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			if tc.servicesEnabled != "" {
+				t.Setenv("SERVICES_ENABLED", tc.servicesEnabled)
+			}
+
+			sm := GetInstance()
+			for name, factory := range tc.factories {
+				sm.Register(name, factory)
+			}
+
+			err := sm.instantiateAll()
+			if tc.expectError {
+				assert.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			sm.servicesMutex.RLock()
+			assert.Len(t, sm.services, tc.expectCount)
+			sm.servicesMutex.RUnlock()
+		})
+	}
+}
+
+func TestServiceManager_BuildServiceCommand(t *testing.T) {
+	testCases := []struct {
+		name        string
+		svcName     string
+		factory     ServiceFactory
+		args        []string
+		expectError error
+	}{
+		{
+			name:    "with commander",
+			svcName: "cmdr",
+			factory: func() (Service, error) {
+				return &commanderService{
+					MockService: NewMockService("cmdr"),
+				}, nil
+			},
+			args: []string{"do-stuff"},
+		},
+		{
+			name:    "without commander",
+			svcName: "plain",
+			factory: func() (Service, error) {
+				return NewTestService("plain"), nil
+			},
+			expectError: ErrNoCommands,
+		},
+		{
+			name:    "instantiate error",
+			svcName: "bad",
+			factory: func() (Service, error) {
+				return nil, errTestService
+			},
+			expectError: errTestService,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetInstance()
+
+			sm := GetInstance()
+			sm.Register(tc.svcName, tc.factory)
+
+			cmd := sm.buildServiceCommand(tc.svcName)
+			assert.Equal(t, tc.svcName, cmd.Use)
+
+			err := cmd.RunE(cmd, tc.args)
+			if tc.expectError != nil {
+				assert.ErrorIs(t, err, tc.expectError)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestParseEnabledServices(t *testing.T) {
+	testCases := []struct {
+		name      string
+		envValue  string
+		expectAll bool
+		expected  []string
+	}{
+		{
+			name:      "empty",
+			envValue:  "",
+			expectAll: true,
+		},
+		{
+			name:     "with values",
+			envValue: "a, b ,c",
+			expected: []string{"a", "b", "c"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SERVICES_ENABLED", tc.envValue)
+
+			enabled, all := parseEnabledServices()
+			assert.Equal(t, tc.expectAll, all)
+			assert.Equal(t, tc.expected, enabled)
+		})
+	}
+}

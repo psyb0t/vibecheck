@@ -1,0 +1,42 @@
+# Example user Dockerfile.dev
+# This file demonstrates how to override the framework development image
+# Delete this file to use the default framework image (Dockerfile.servicepack.dev)
+
+# Pinned by digest, not by tag — a tag is mutable and lets an upstream
+# republish different bytes under the same name. Bump deliberately.
+FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+
+# Install build dependencies
+RUN apk add --no-cache \
+    make \
+    gcc \
+    musl-dev \
+    bash \
+    curl \
+    git \
+    jq \
+    shellcheck \
+    shfmt \
+    python3 \
+    py3-pip
+
+# semgrep for the security scan (make sec). Modern semgrep works on alpine musl.
+RUN pip install --break-system-packages --no-cache-dir semgrep==1.173.0
+
+# Set working directory
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Set env vars
+ENV ENV=dev
+ENV LOG_LEVEL=debug
+ENV LOG_FORMAT=text
+ENV LOG_ADD_SOURCE=true
+ENV SERVICES_ENABLED=
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOSUMDB=sum.golang.org
+
+# Default command - shows available make targets
+CMD ["make", "help"]

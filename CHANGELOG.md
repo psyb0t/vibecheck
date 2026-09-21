@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1] - 2026-09-21
+
+- Updated the Servicepack framework baseline to v1.9.3.
+- Replaced timing-sensitive service retry tests with deterministic
+  run-triggered cancellation.
+- Synced the collaborators-only workflow with the current framework template.
+
 ## [0.1.0] - 2026-09-21
 
 Initial Vibecheck scaffold.

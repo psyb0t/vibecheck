@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2] - 2026-09-21
+
+- Added Docker Hub image publication for `linux/amd64` and `linux/arm64`,
+  including immutable release tags, `latest`, SBOMs, provenance, and
+  vulnerability reporting.
+- Added Claude Code, Codex, and OpenClaw skill packaging with release-time
+  ClawHub publication.
+- Documented the current image, agent installation commands, and the boundary
+  between the scaffold and the planned decision service.
+- Fixed the collaborators-only workflow permissions and limited pull request
+  checks to non-draft changes.
+
 ## [0.1.1] - 2026-09-21
 
 - Updated the Servicepack framework baseline to v1.9.3.

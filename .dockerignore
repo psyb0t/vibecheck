@@ -24,6 +24,7 @@ docs/
 
 # Local tooling that must never enter an image
 git-update.sh
+.agents/
 
 # Build output, coverage, logs, debug artifacts
 build/

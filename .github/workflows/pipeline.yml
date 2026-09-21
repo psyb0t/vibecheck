@@ -1,9 +1,18 @@
 name: pipeline
 
-on: [push]
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
 
 jobs:
   code:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     permissions:
       contents: read
       security-events: write
@@ -17,6 +26,26 @@ jobs:
       sarif_file: "sec.sarif"
       sarif_category: "go"
 
+  docker:
+    needs: [code]
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    permissions:
+      contents: write
+      security-events: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/docker-image-workflow.yml@master
+    with:
+      repository_name: psyb0t/vibecheck
+      target_platforms: "linux/amd64,linux/arm64"
+      build_targets: >-
+        [{"file":"Dockerfile","tag_suffix":"","build_args":"BUILD_COMMIT=${{ github.sha }}\nBUILD_VERSION=${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}"}]
+      scan_severity: "high"
+      scan_fail_build: false
+      dockerhub_private: false
+      sync_description: true
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+
   badges:
     needs: [code]
     if: github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/')
@@ -26,9 +55,11 @@ jobs:
     with:
       coverage: true
 
-  release:
-    needs: [code]
+  publish-to-clawhub:
+    needs: [docker]
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
-      contents: write
-    uses: psyb0t/reusable-github-workflows/.github/workflows/release-workflow.yml@master
+      contents: read
+    uses: psyb0t/reusable-github-workflows/.github/workflows/clawhub-publish.yml@master
+    secrets:
+      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}

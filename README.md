@@ -4,6 +4,7 @@
 [![coverage](https://raw.githubusercontent.com/psyb0t/vibecheck/badges/coverage.svg)](https://github.com/psyb0t/vibecheck/actions/workflows/pipeline.yml)
 [![version](https://raw.githubusercontent.com/psyb0t/vibecheck/badges/version.svg)](https://github.com/psyb0t/vibecheck/releases)
 [![license](https://raw.githubusercontent.com/psyb0t/vibecheck/badges/license.svg)](LICENSE)
+[![Docker Pulls](https://img.shields.io/docker/pulls/psyb0t/vibecheck?style=flat-square)](https://hub.docker.com/r/psyb0t/vibecheck)
 
 Typed classification, scoring, and decision service built on TypeSafe Jev.
 
@@ -35,6 +36,39 @@ make audit-compose     # check docker-compose.yml against the hardening floor
 `.env.example` records the planned service configuration. Those values become
 active as the corresponding implementation phases land. Real `.env` files are
 gitignored.
+
+The current image exposes the scaffold CLI while the service is being built:
+
+```bash
+docker pull psyb0t/vibecheck:latest
+docker run --rm psyb0t/vibecheck:latest --help
+```
+
+Tagged releases publish matching immutable images such as
+`psyb0t/vibecheck:v0.1.2`. Do not deploy the image as a decision service until
+the status notice above says the API is implemented.
+
+## Agent integrations
+
+The bundled skill gives Claude Code, Codex, and OpenClaw the verified project
+boundaries and Docker-backed development commands. It does not invent an API
+or MCP surface that has not landed yet.
+
+```bash
+# Claude Code
+claude plugin marketplace add psyb0t/agents
+claude plugin install vibecheck@psyb0t
+
+# Codex
+codex plugin marketplace add psyb0t/agents
+codex plugin add vibecheck@psyb0t
+
+# OpenClaw
+openclaw skills install @psyb0t/vibecheck
+```
+
+ClawHub publication happens from release tags. There is no OpenClaw MCP plugin
+or MCP registry entry until Vibecheck actually exposes an MCP server.
 
 ## Layout
 

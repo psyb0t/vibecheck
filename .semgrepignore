@@ -1,0 +1,26 @@
+# Paths `make sec` must not scan.
+#
+# Semgrep only reads .gitignore on its own inside a Git working tree, and
+# `make sec` has to be clean in a plain directory too, so the scratch trees
+# are named here as well as pulled in from .gitignore. Without this file the
+# scan walked 520 targets, 423 of them mirrored upstream repositories under
+# .research_files/. With it, 80, all of them this project's own source.
+:include .gitignore
+
+# Third-party source reproduced verbatim by `go mod vendor`. Committed on
+# purpose and not ours to patch; upstream fixes arrive through
+# `make pkg-update`. Semgrep already excludes it by default, so this line only
+# makes the exclusion independent of that default.
+vendor/
+
+# Version control and build output.
+.git/
+build/
+
+# Local scratch: mirrored upstream repositories, command logs, notes, test
+# plans, and telemetry.
+.research_files/
+.logs/
+.agent_notes/
+.testing/
+.telemetry/

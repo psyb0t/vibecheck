@@ -25,10 +25,6 @@ docs/
 # Local tooling that must never enter an image
 git-update.sh
 
-# Agent skill / plugin manifests. Repo distribution material — published from
-# the repo itself, never built into or read by the binary.
-.agents
-
 # Build output, coverage, logs, debug artifacts
 build/
 coverage.*
@@ -44,7 +40,17 @@ __debug_*
 # Scratch and local state
 .telemetry/
 .testing/
+.logs/
+.agent_notes/
 .backup
 .research_files
 scripts/.post-update-temp
 __pycache__
+
+# Local runtime state. The image gets an empty /data volume, never a copy of
+# whatever the developer's last run left on disk.
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+sec.sarif

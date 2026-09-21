@@ -32,12 +32,3 @@ jobs:
     permissions:
       contents: write
     uses: psyb0t/reusable-github-workflows/.github/workflows/release-workflow.yml@master
-
-  # Publish the skill (.agents/skills/) to ClawHub. Tag pushes ONLY, after the
-  # checks pass.
-  publish-to-clawhub:
-    needs: [code]
-    if: startsWith(github.ref, 'refs/tags/')
-    uses: psyb0t/reusable-github-workflows/.github/workflows/clawhub-publish.yml@master
-    secrets:
-      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}

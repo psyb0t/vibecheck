@@ -17,6 +17,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
-export LOG_LEVEL=info
+readonly QUIET_LOG_LEVEL=info
+
+export LOG_LEVEL="$QUIET_LOG_LEVEL"
 
 exec bash "${SCRIPT_DIR}/servicepack/service_registration.sh"

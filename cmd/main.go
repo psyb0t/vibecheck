@@ -6,11 +6,11 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
+	_ "github.com/psyb0t/slogging/slogconf"
 	"github.com/psyb0t/vibecheck/internal/app"
 	servicemanager "github.com/psyb0t/vibecheck/internal/pkg/service-manager"
 	"github.com/psyb0t/vibecheck/internal/pkg/services"
 	"github.com/psyb0t/vibecheck/pkg/runner"
-	_ "github.com/psyb0t/slogging/slogconf"
 	"github.com/spf13/cobra"
 )
 

@@ -1,35 +1,68 @@
-.vscode
+# Codex / agent scratch
 AGENTS.md
 CODEX.local.md
-.log
-__pycache__
-coverage.out
-coverage.html
-coverage.txt
-coverage_filtered.txt
-/build/
-CLAUDE.md
-.env
-.env.local
-.env.*
-!.env.example
-research_files
-# The dotted form is the one actually used; the bare name above never matched it.
-.research_files
+.research_files/
 .agent_notes/
 .agent_knowledge/
+.testing/
 PLAN.md
 implplan.md
 NOTES.md
 TODO.md
 WIP.md
-.backup
-scripts/.post-update-temp
+
+# Local release tooling
 git-update.sh
-.telemetry/
+
+# Secrets and local configuration
+.env
+.env.local
+.env.*
+!.env.example
+
+# Build and test artifacts
+build/
+coverage.txt
+coverage.out
 coverage-percent.txt
+profile.out
+.cover/
+htmlcov/
 sec.sarif
-.testing/
+
+# Runtime state
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Editor / IDE
+.vscode/
+.idea/
+.editorconfig
+.envrc
+.tool-versions
+.python-version
+.nvmrc
+pyrightconfig.json
+
+# Agent scratch (Claude side; the Codex names are already covered above)
+CLAUDE.md
+CLAUDE.local.md
 .anustimes/
 .brutal_reviews/
 .rule_audits/
+.telemetry/
+.logs/
+
+# Servicepack tooling state
+.backup
+scripts/.post-update-temp
+
+# Extra coverage artifacts produced by make test-coverage
+coverage.html
+coverage_covdata.txt
+coverage_merged.txt
+coverage_filtered.txt
+.log
+__pycache__

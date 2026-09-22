@@ -1,0 +1,29 @@
+# Findings gitleaks has judged and this repo has judged back.
+#
+# Fingerprints, deliberately — not a path or rule allowlist. A fingerprint is
+# file + rule + LINE, so these entries silence exactly these findings and
+# nothing else. A new secret on line 25 of the same file, or a different rule
+# firing on the same line, still fails the release. And if one of these lines
+# moves, its fingerprint stops matching and the finding comes back for
+# re-review rather than staying silently suppressed.
+#
+# The path prefixes are not decoration: gitleaks builds the fingerprint from
+# the path it was given. The release script scans a staged copy at /repo, while
+# the Docker-backed Make target scans the working tree at /work.
+#
+# Both entries are test request-id fixtures ("panic-req-456", "panic-test-789")
+# passed as a context value. The generic-api-key rule scores them on entropy and
+# the surrounding `Key: "value"` shape — right about the pattern, wrong about
+# these two strings.
+/repo/serbewr/middleware/recovery_test.go:generic-api-key:24
+/repo/serbewr/middleware/recovery_test.go:generic-api-key:99
+/work/serbewr/middleware/recovery_test.go:generic-api-key:24
+/work/serbewr/middleware/recovery_test.go:generic-api-key:99
+
+# Historical versions of the same request-ID fixtures, plus the fake bearer
+# token that now carries an inline allow marker in the current tree.
+ddbe45692c7c208963f376b75dd6bf113e654fcd:serbewr/middleware/bearer_auth_test.go:generic-api-key:13
+4473fbfef1d4cc8eef64b0857b58856c006dc8d6:server/middleware/recovery_test.go:generic-api-key:24
+aea507c96929ea3d8d8df0f4d50dcfdb56930927:server/middleware/recovery_test.go:generic-api-key:91
+389978dea0870522f0b8dd1a523ffdc0743c8fd6:server/middleware/recovery_test.go:generic-api-key:28
+389978dea0870522f0b8dd1a523ffdc0743c8fd6:server/middleware/recovery_test.go:generic-api-key:93

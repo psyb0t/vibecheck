@@ -1,0 +1,9 @@
+# The public Go client. It is a real pkg/ package because other repositories
+# import it; it must stay generated from the same spec as the server.
+package: client
+output: client.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  skip-prune: true

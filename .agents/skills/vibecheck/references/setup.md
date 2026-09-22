@@ -2,13 +2,21 @@
 
 ## Current status
 
-The repository currently contains the Servicepack scaffold, Docker-backed
-tooling, a hardened future deployment baseline, and a placeholder hello-world
-service. The policy compiler, TypeSafe Jev adapter, persistence, HTTP API, and
-MCP server are not implemented yet.
+The service runs. One registered Servicepack service, `vibecheck-server`,
+starts the whole thing: it parses config, compiles the mounted policies,
+opens and migrates the database, builds the TypeSafe Jev adapter, then serves
+REST and MCP on one public listener with metrics on a separate internal one.
 
-Do not claim that `docker compose up`, an HTTP route, or an MCP tool works until
-the corresponding code and behavioral tests land.
+Built and covered by behavioral tests: the policy compiler and evaluator, the
+Jev adapter, SQLite and PostgreSQL persistence with reversible migrations,
+encrypted input retention, idempotency, the REST API, the MCP server, the
+retention cleanup loop, and the production Docker image.
+
+Idempotency replay is built. Re-evaluating retained inputs and calibration
+reports are not built.
+
+Do not claim a route, MCP tool, or config value works until you have found
+its implementation and the behavioral test that covers it.
 
 ## Development setup
 
@@ -28,12 +36,21 @@ make build
 make test
 ```
 
-The production image can currently prove the scaffold CLI only:
+Running the service from the published image:
 
 ```bash
-docker pull psyb0t/vibecheck:latest
-docker run --rm psyb0t/vibecheck:latest --help
+docker run --rm -p 8080:8080 \
+  -e VIBECHECK_HTTP_LISTEN_ADDRESS=0.0.0.0:8080 \
+  -e VIBECHECK_METRICS_LISTEN_ADDRESS=0.0.0.0:9091 \
+  -e VIBECHECK_TYPESAFE_API_KEY=your-key \
+  -v "$PWD/examples/agent-action-firewall:/config/policies:ro" \
+  -v vibecheck-data:/data \
+  psyb0t/vibecheck:latest run
 ```
+
+The REST API is under `/v1`. The MCP endpoint is `/mcp`, and `/mcp/` reaches
+the same handler without a redirect. `/healthz` and `/ready` are unversioned
+and unauthenticated. Metrics are only on the internal listener.
 
 Use an immutable `vX.Y.Z` image in any repeatable environment. The release
 pipeline publishes both `latest` from `main` and the matching tag from a tagged
@@ -41,11 +58,17 @@ release.
 
 ## Configuration
 
-`.env.example` records the planned configuration contract. Values are not
-active merely because they appear there. Confirm each value against its config
-struct and startup validation before relying on it.
+`.env.example` documents every setting with its default. The parser and its
+validation live in `internal/pkg/config`. Invalid configuration fails the
+process at startup rather than at the first request that reads it.
 
-Never commit a real `.env`, TypeSafe credential, API token, or encryption key.
+Two invariants worth knowing: `VIBECHECK_STORE_INPUTS` without a
+`VIBECHECK_DATA_KEY` is refused, and the metrics listener must not share an
+address with the public API.
+
+Never commit a real `.env`, TypeSafe credential, API token, or encryption
+key. The opt-in live-provider suite reads its credential from a gitignored
+`.env.real`; see `docs/testing.md`.
 
 ## Servicepack updates
 
@@ -57,6 +80,7 @@ make servicepack-update-review
 make build
 make lint
 make test
+make test-api
 make servicepack-update-merge
 ```
 

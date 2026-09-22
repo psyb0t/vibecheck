@@ -1,0 +1,565 @@
+openapi: 3.1.0
+
+info:
+  title: Vibecheck
+  description: >-
+    Typed classification, scoring, and decision service built on TypeSafe Jev.
+
+    A caller submits state plus trusted facts, selects a versioned policy, and
+    gets back the selected outcome, the deterministic rule that selected it,
+    every typed answer with its probabilities, model and token usage, and a
+    stable evaluation ID.
+
+    Vibecheck is advisory. It never executes the action it judges. Enforcing
+    the returned outcome is the caller's job, and a caller acting on a
+    destructive decision should fail closed when Vibecheck is unavailable.
+  version: &specVersion 0.2.0
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /v1
+    description: Version 1 of the public API.
+
+# Values shared between this contract and the Go code. oapixconstgen turns
+# these into typed constants so a limit is never written twice.
+x-constants:
+  int:
+    defaultListLimit: &defaultListLimit 50
+    maxListLimit: &maxListLimit 200
+    maxNoteLength: &maxNoteLength 2000
+    maxMetadataEntries: 16
+    maxMetadataValueLength: &maxMetadataValueLength 256
+  string:
+    headerRequestID: X-Request-Id
+    headerIdempotencyKey: Idempotency-Key
+    # Anchored to info.version so the contract revision and the identity the
+    # MCP server reports during initialize cannot drift apart.
+    specVersion: *specVersion
+
+tags:
+  - name: evaluations
+    description: Submit and inspect decisions.
+  - name: policies
+    description: Inspect and validate loaded policies.
+
+paths:
+  /evaluations:
+    post:
+      operationId: createEvaluation
+      tags: [evaluations]
+      summary: Evaluate state against a policy
+      description: >-
+        Synchronous. Exactly one of policyRef or inlinePolicy must be
+        supplied. Inline policies are refused unless the deployment enables
+        them.
+
+        Supplying an Idempotency-Key replays the original evaluation when the
+        canonical request is identical, and conflicts when it is not.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEvaluationRequest'
+      responses:
+        '201':
+          description: The evaluation completed and was recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evaluation'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+    get:
+      operationId: listEvaluations
+      tags: [evaluations]
+      summary: List recorded evaluations
+      description: Newest first, with the evaluation ID as a stable tiebreaker.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: policyName
+          in: query
+          required: false
+          schema: { type: string, maxLength: 64 }
+        - name: policyVersion
+          in: query
+          required: false
+          schema: { type: string, maxLength: 32 }
+        - name: outcome
+          in: query
+          required: false
+          schema: { type: string, maxLength: 64 }
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/EvaluationStatus' }
+      responses:
+        '200':
+          description: A page of evaluations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluationList'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /evaluations/{evaluationId}:
+    get:
+      operationId: getEvaluation
+      tags: [evaluations]
+      summary: Fetch one evaluation
+      parameters:
+        - $ref: '#/components/parameters/EvaluationID'
+      responses:
+        '200':
+          description: The evaluation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evaluation'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /evaluations/{evaluationId}/feedback:
+    post:
+      operationId: submitFeedback
+      tags: [evaluations]
+      summary: Record the outcome a human expected
+      description: >-
+        Feedback is calibration data. It never changes a recorded decision and
+        never influences a future one.
+      parameters:
+        - $ref: '#/components/parameters/EvaluationID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitFeedbackRequest'
+      responses:
+        '201':
+          description: The feedback was recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feedback'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /policies:
+    get:
+      operationId: listPolicies
+      tags: [policies]
+      summary: List loaded policies
+      responses:
+        '200':
+          description: Every policy loaded at startup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /policies/{policyName}/versions/{policyVersion}:
+    get:
+      operationId: getPolicy
+      tags: [policies]
+      summary: Fetch one loaded policy
+      parameters:
+        - name: policyName
+          in: path
+          required: true
+          schema: { type: string, maxLength: 64 }
+        - name: policyVersion
+          in: path
+          required: true
+          schema: { type: string, maxLength: 32 }
+      responses:
+        '200':
+          description: The policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /policies/validate:
+    post:
+      operationId: validatePolicy
+      tags: [policies]
+      summary: Compile a policy document without installing it
+      description: >-
+        Compiles the supplied document and reports whether it is valid.
+        Nothing is written to the policy directory and nothing is loaded.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidatePolicyRequest'
+      responses:
+        '200':
+          description: The compile result, valid or not.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyValidation'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+components:
+  parameters:
+    EvaluationID:
+      name: evaluationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: A caller-chosen UUID that makes this request replayable.
+      schema: { type: string, format: uuid }
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: *maxListLimit
+        default: *defaultListLimit
+
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+  schemas:
+    Error:
+      type: object
+      description: >-
+        The error envelope every failure uses. `code` is stable
+        UPPER_SNAKE_CASE and is the value a client switches on.
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: {}
+
+    EvaluationStatus:
+      type: string
+      enum: [completed, provider_failed, rejected]
+
+    ExecutionPath:
+      type: string
+      description: >-
+        How far the evaluation got before an outcome was selected. `pre_rule`
+        means a deterministic rule decided it and no provider call was made.
+      enum: [pre_rule, decision_rule, default]
+
+    PolicyKind:
+      type: string
+      enum: [named, inline]
+
+    QuestionType:
+      type: string
+      enum: [choice, score, noul]
+
+    PolicyRef:
+      type: object
+      required: [name, version]
+      properties:
+        name: { type: string, maxLength: 64 }
+        version: { type: string, maxLength: 32 }
+
+    Answer:
+      type: object
+      description: >-
+        One typed answer. Which fields are present depends on `type`: a noul
+        carries only `noul`, a choice carries `choice`, `confidence`, and
+        `probabilities`, and a score carries `score`, `confidence`,
+        `probabilities`, and `legend`.
+      required: [type]
+      properties:
+        type: { $ref: '#/components/schemas/QuestionType' }
+        choice: { type: string }
+        score: { type: number, format: double }
+        noul: { type: number, format: double, minimum: 0, maximum: 1 }
+        confidence: { type: number, format: double, minimum: 0, maximum: 1 }
+        probabilities:
+          type: object
+          additionalProperties: { type: number, format: double }
+        legend:
+          type: object
+          additionalProperties: { type: string }
+
+    Usage:
+      type: object
+      required: [inputTokens, outputTokens]
+      properties:
+        inputTokens: { type: integer }
+        outputTokens: { type: integer }
+
+    Evaluation:
+      type: object
+      required:
+        - id
+        - policy
+        - policyHash
+        - policyKind
+        - status
+        - outcome
+        - executionPath
+        - answers
+        - usage
+        - createdAt
+      properties:
+        id: { type: string, format: uuid }
+        policy: { $ref: '#/components/schemas/PolicyRef' }
+        policyHash:
+          type: string
+          description: SHA-256 of the exact policy that decided this evaluation.
+        policyKind: { $ref: '#/components/schemas/PolicyKind' }
+        status: { $ref: '#/components/schemas/EvaluationStatus' }
+        outcome: { type: string }
+        matchedRuleId:
+          type: [string, 'null']
+          description: >-
+            The rule that selected the outcome, null when the default applied.
+        executionPath: { $ref: '#/components/schemas/ExecutionPath' }
+        requestedModel: { type: string }
+        resolvedModel:
+          type: string
+          description: The versioned model that actually answered.
+        answers:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/Answer' }
+        usage: { $ref: '#/components/schemas/Usage' }
+        providerAttempts: { type: integer }
+        providerDurationMs: { type: integer }
+        totalDurationMs: { type: integer }
+        requestId: { type: string }
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+        failureCode:
+          type: [string, 'null']
+          description: The stable error class when status is not completed.
+        createdAt: { type: string, format: date-time }
+
+    EvaluationList:
+      type: object
+      description: >-
+        Offset pagination with a hasMore probe rather than a count, because
+        the evaluation table grows without bound.
+      required: [items, limit, offset, hasMore]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Evaluation' }
+        limit: { type: integer }
+        offset: { type: integer }
+        hasMore: { type: boolean }
+
+    CreateEvaluationRequest:
+      type: object
+      required: [state]
+      properties:
+        policyRef: { $ref: '#/components/schemas/PolicyRef' }
+        inlinePolicy:
+          type: object
+          description: >-
+            A complete policy document. Refused unless the deployment enables
+            inline policies. It is never written to the policy directory.
+          additionalProperties: true
+        state:
+          description: The content to judge, a string or a structured value.
+        facts:
+          type: object
+          description: Trusted structured values the deterministic rules read.
+          additionalProperties: true
+        metadata:
+          type: object
+          description: Bounded caller metadata recorded with the evaluation.
+          additionalProperties:
+            type: string
+            maxLength: *maxMetadataValueLength
+
+    Policy:
+      type: object
+      required: [name, version, hash, outcomes, defaultOutcome, questions]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        description: { type: string }
+        hash: { type: string }
+        model: { type: string }
+        outcomes:
+          type: array
+          items: { type: string }
+        defaultOutcome: { type: string }
+        requiredFacts:
+          type: object
+          additionalProperties: { type: string }
+        optionalFacts:
+          type: object
+          additionalProperties: { type: string }
+        strictInput: { type: boolean }
+        questions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyQuestion' }
+        preRuleIds:
+          type: array
+          items: { type: string }
+        decisionRuleIds:
+          type: array
+          items: { type: string }
+
+    PolicyQuestion:
+      type: object
+      required: [id, type, instructions]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/QuestionType' }
+        instructions: { type: string }
+        choiceCriteria:
+          type: object
+          additionalProperties: { type: string }
+        scoreCriteria:
+          type: array
+          items: { type: string }
+
+    PolicyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Policy' }
+
+    ValidatePolicyRequest:
+      type: object
+      required: [policy]
+      properties:
+        policy:
+          type: object
+          description: The policy document to compile.
+          additionalProperties: true
+
+    PolicyValidation:
+      type: object
+      required: [valid]
+      properties:
+        valid: { type: boolean }
+        policy: { $ref: '#/components/schemas/Policy' }
+        error:
+          type: [string, 'null']
+          description: Why the document failed to compile.
+
+    SubmitFeedbackRequest:
+      type: object
+      required: [expectedOutcome]
+      properties:
+        expectedOutcome: { type: string, maxLength: 64 }
+        note: { type: string, maxLength: *maxNoteLength }
+
+    Feedback:
+      type: object
+      required: [id, evaluationId, expectedOutcome, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        evaluationId: { type: string, format: uuid }
+        expectedOutcome: { type: string }
+        note: { type: string }
+        createdAt: { type: string, format: date-time }
+
+  responses:
+    BadRequest:
+      description: The request was malformed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: The bearer token was missing or wrong.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: The idempotency key was reused with a different request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PayloadTooLarge:
+      description: The body exceeded the configured ceiling.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnprocessableEntity:
+      description: The request was well-formed but failed the policy contract.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: The caller exceeded the configured rate limit.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalServerError:
+      description: Vibecheck failed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadGateway:
+      description: The provider returned something Vibecheck could not use.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnavailable:
+      description: The provider was unreachable or out of capacity.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    GatewayTimeout:
+      description: The provider did not answer in time.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

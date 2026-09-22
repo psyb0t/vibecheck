@@ -1,6 +1,6 @@
 {
   "name": "vibecheck",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Develop and verify the Vibecheck typed classification, scoring, and policy decision service.",
   "author": { "name": "psyb0t", "url": "https://github.com/psyb0t" },
   "homepage": "https://github.com/psyb0t/vibecheck",

@@ -4,14 +4,14 @@ package services
 
 import (
 	servicemanager "github.com/psyb0t/vibecheck/internal/pkg/service-manager"
-	helloworld "github.com/psyb0t/vibecheck/internal/pkg/services/hello-world"
+	vibecheckserver "github.com/psyb0t/vibecheck/internal/pkg/services/vibecheck-server"
 )
 
 func Init() {
 	sm := servicemanager.GetInstance()
 
-	sm.Register(helloworld.ServiceName, func() (servicemanager.Service, error) {
-		return helloworld.New()
+	sm.Register(vibecheckserver.ServiceName, func() (servicemanager.Service, error) {
+		return vibecheckserver.New()
 	})
 
 }

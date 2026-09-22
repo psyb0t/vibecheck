@@ -1,0 +1,28 @@
+title = "aichteeteapee secret scanning"
+
+[extend]
+useDefault = true
+
+# gitleaks' `dir` mode walks the working tree and does NOT honour .gitignore, so
+# every gitignored local path is named again here. Nothing gitignored is tracked
+# by git. The committed Go vendor/ tree is intentionally NOT listed: it ships to
+# consumers, so it gets scanned. Verify with `git check-ignore <path>` before
+# adding a line; an entry for a committed source path silences real leaks.
+#
+# Fake secrets in tracked _test.go fixtures are handled separately: an inline
+# `//gitleaks:allow` in bearer_auth_test.go, and `.gitleaksignore` fingerprints
+# for server_test.go. A global allowlist here would not apply, because gitleaks
+# ignores it for the default rules pulled in by `useDefault`.
+[[allowlists]]
+description = "Gitignored local scratch, caches, and scan artifacts"
+paths = [
+  '''(^|/)\.env$''',
+  '''(^|/)\.vscode(?:/|$)''',
+  '''(^|/)\.telemetry(?:/|$)''',
+  '''(^|/)\.research_files(?:/|$)''',
+  '''(^|/)__pycache__(?:/|$)''',
+  '''(^|/)sec\.sarif$''',
+  '''(^|/)coverage-percent\.txt$''',
+  '''(^|/)git-update\.sh$''',
+  '''(^|/)CLAUDE\.md$''',
+]

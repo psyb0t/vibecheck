@@ -1,10 +1,10 @@
 ---
 name: vibecheck
-description: Develop and verify psyb0t/vibecheck, a Go service for typed classification, scoring, and policy decisions backed by TypeSafe Jev. Use when working in the Vibecheck repository on its Servicepack lifecycle, policy engine, provider adapter, persistence, HTTP API, MCP surface, Docker image, or tests. The current release is an early scaffold, so verify implemented behavior before claiming or using an endpoint.
+description: Develop and verify psyb0t/vibecheck, a Go service for typed classification, scoring, and policy decisions backed by TypeSafe Jev. Use when working in the Vibecheck repository on its Servicepack lifecycle, policy engine, provider adapter, persistence, REST API, MCP server, Docker image, or tests. Verify implemented behavior before claiming or using an endpoint.
 homepage: https://github.com/psyb0t/vibecheck
 user-invocable: true
 permissions:
-  network: "Setup reaches GitHub to clone the repository and Docker Hub to pull published Vibecheck images. Runtime provider and API endpoints are not available in the current scaffold."
+  network: "Setup reaches GitHub to clone the repository and Docker Hub to pull published Vibecheck images. A running Vibecheck calls the TypeSafe System One endpoint; the test suites use a local fake instead."
   filesystem:
     read:
       - "**/*.go"
@@ -26,6 +26,7 @@ permissions:
     - "make lint"
     - "make test"
     - "make test-integration"
+    - "make test-api"
     - "make test-coverage"
     - "make sec"
     - "make audit-compose"
@@ -41,14 +42,17 @@ metadata:
 
 # Vibecheck
 
-Vibecheck is being built as a generic typed classification, scoring, and
-decision service. A caller will submit state and trusted facts, select a
-versioned policy, and receive typed Jev answers plus the deterministic outcome
-selected by that policy. The caller, not Vibecheck, executes or enforces the
-result.
+Vibecheck is a typed classification, scoring, and decision service. A caller
+submits state and trusted facts, selects a versioned policy, and receives the
+typed Jev answers plus the deterministic outcome that policy selected. The
+caller, not Vibecheck, executes or enforces the result.
 
-Read [references/setup.md](references/setup.md) before changing the repository.
-It records the current implementation boundary and the supported commands.
+The service runs. It serves the REST API under `/v1`, a Streamable HTTP MCP
+endpoint at `/mcp`, and the unversioned `/healthz` and `/ready` probes on one
+public listener, with Prometheus metrics on a separate internal listener.
+
+Read [references/setup.md](references/setup.md) before changing the
+repository. It records the supported commands.
 
 ## Security and safety
 
@@ -73,7 +77,6 @@ It records the current implementation boundary and the supported commands.
 
 ## When not to use
 
-- Calling a deployed Vibecheck API. The current release does not expose one.
 - Treating a model probability as permission to execute an action.
 - Inventing routes, MCP tools, policy fields, or configuration beyond the
   implementation.
@@ -89,6 +92,7 @@ make build
 make lint
 make test
 make test-integration
+make test-api
 make test-coverage
 make sec
 make audit-compose
@@ -110,5 +114,12 @@ branch, then merge through `make servicepack-update-merge`.
 ## Verify claims
 
 Before documenting or using a route, tool, config value, or response field,
-find the registered implementation and its behavioral test. The README status
-is authoritative while the project remains an early scaffold.
+find the registered implementation and its behavioral test. `api/api.yml` is
+the source of truth for the REST contract, and the six MCP tools are
+registered in `internal/pkg/mcp`. Both transports call the same services in
+`internal/pkg/core`, so a decision made over MCP produces the same audit row
+as the same decision made over REST.
+
+The MCP tools are `vibecheck_evaluate`, `vibecheck_list_policies`,
+`vibecheck_get_policy`, `vibecheck_get_evaluation`, `vibecheck_validate_policy`,
+and `vibecheck_submit_feedback`.

@@ -91,6 +91,28 @@ linters:
     lll:
       line-length: 80
       tab-width: 4
+    ireturn:
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        # oapi-codegen's strict server models every response as a sealed
+        # interface with one implementation per status code. A handler
+        # returning the concrete 200 type could not also return a 404, so
+        # the interface return is the generated contract, not a choice.
+        - github\.com/psyb0t/vibecheck/internal/pkg/http/api\..*ResponseObject
+        # The Prometheus client's constructors return interfaces. Wrapping
+        # them in concrete types to satisfy the linter would only re-export
+        # the same interface one call later.
+        - github\.com/prometheus/client_golang/prometheus\.(Gauge|Histogram|Counter|Observer)
+        # The provider seam exists so the Jev client can be swapped for a
+        # scripted double in tests. Returning the interface is the point.
+        - github\.com/psyb0t/vibecheck/internal/pkg/provider\.Provider
+        # gorm-gen's generated query builders are interfaces it defines.
+        - github\.com/psyb0t/vibecheck/internal/pkg/db/repositories\.I.*Do
+        # testcontainers-go hands back a Container interface.
+        - github\.com/testcontainers/testcontainers-go\.Container
     wsl_v5:
       allow-first-in-block: true
       allow-whole-block: false
@@ -111,6 +133,40 @@ linters:
             # Integration-test harness under tests/ that builds and runs the app
             # image via testcontainers-go. Test-only; production never imports it.
             - github.com/testcontainers/testcontainers-go
+            # testcontainers hands its HostConfigModifier the moby HostConfig
+            # type, so the harness has to name it to add a bind mount. Test
+            # infrastructure only; production imports neither.
+            - github.com/moby/moby/api/types/container
+            # Policy documents are YAML. The parser is used only by
+            # internal/pkg/policy, which needs its strict unknown-field
+            # checking: a typo in a mounted policy must fail startup rather
+            # than silently disable a rule.
+            - gopkg.in/yaml.v3
+            # Persistence. GORM plus gorm-gen is the project's data layer;
+            # the pure-Go SQLite driver keeps the production image cgo-free.
+            - gorm.io/gorm
+            - gorm.io/gen
+            - github.com/glebarez/sqlite
+            # Metrics. The Prometheus client is the only instrument library
+            # the internal listener exposes, and the registry type is part
+            # of internal/pkg/metrics' public surface.
+            - github.com/prometheus/client_golang
+            # The generated protobuf types Registry().Gather() returns. The
+            # metrics tests read them to assert on real gathered samples;
+            # the testutil helper that would hide them is not vendored.
+            - github.com/prometheus/client_model
+            # The Model Context Protocol server. There is no psyb0t
+            # equivalent; this is the reference Go SDK for the protocol.
+            - github.com/modelcontextprotocol/go-sdk
+            # The schema inference the MCP SDK itself uses. Imported directly
+            # so a tool's output schema can describe uuid.UUID as a string:
+            # it is [16]byte, so the default inference publishes an array
+            # while the value marshals as a string, and the SDK then rejects
+            # its own tool results.
+            - github.com/google/jsonschema-go
+            # golang.org/x/time/rate backs the request rate limiter. It is
+            # the stdlib-adjacent token bucket; hand-rolling one is worse.
+            - golang.org/x/time
 
   exclusions:
     generated: lax
@@ -129,6 +185,41 @@ linters:
           - gocognit
           - maintidx
           - wrapcheck
+          # A test case is data. Spelling its numbers and strings inline is
+          # what makes the table readable; hoisting them to named constants
+          # moves the thing under test away from the assertion about it.
+          - mnd
+          - goconst
+          # Table-driven cases across a suite are meant to look alike.
+          - dupl
+          # Test errors are one-off fixtures, never matched by a caller.
+          - err113
+          # Shared testcontainers fixtures built once in TestMain have to
+          # live at package scope; rebuilding an image per test does not
+          # finish in a usable time.
+          - gochecknoglobals
+      # Servicepack owns these trees and `make servicepack-update` replaces
+      # them, so a finding here cannot be fixed downstream. goconst started
+      # flagging their table-test literals when the pinned golangci-lint moved
+      # from v2.8.0 to v2.12.2. Report it upstream rather than editing a
+      # framework file; until then the gate must not block on it.
+      - path: ^internal/app/|^internal/pkg/service-manager/|^pkg/runner/
+        linters:
+          - goconst
+      # The TypeSafe Jev wire format is snake_case and is not ours to
+      # rename. These structs exist only to marshal that exact contract;
+      # the camelCase house style applies to the API we publish, which is
+      # api/api.yml. The fake provider mirrors the same wire bytes so the
+      # scripted double is indistinguishable from the upstream service.
+      - path: ^internal/pkg/provider/jev/wire\.go$|^tests/testinfra/fakeprovider\.go$
+        linters:
+          - tagliatelle
+      # The metrics test reads back registered samples through the
+      # Prometheus protobuf model, which is the only way to assert on a
+      # collector's value without scraping it over HTTP.
+      - path: ^internal/pkg/metrics/metrics_test\.go$
+        linters:
+          - depguard
 
 formatters:
   enable:
@@ -142,3 +233,10 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+
+# Report every finding. The defaults cap output at 50 per linter and 3 per
+# message, which silently hides the tail of a batch and makes a cleanup look
+# finished while findings remain.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

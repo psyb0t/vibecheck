@@ -1,0 +1,111 @@
+# Reference policy: judge a proposed coding-agent action.
+#
+# This is an example, not a privileged code path. Vibecheck loads it the same
+# way it loads any other policy and gives it no special treatment.
+#
+# A probabilistic decision cannot replace deterministic ownership,
+# authorization, or sandbox boundaries. Everything this policy can do is
+# advisory: it returns an outcome, and the caller decides what to do with it.
+# The pre-rules below exist precisely because the hard constraints must not be
+# inside the model's reach.
+#
+# Callers that act on this policy should fail closed. If Vibecheck is
+# unreachable, treat a destructive action as "review" or "block", never as
+# "allow".
+apiVersion: vibecheck.psyb0t.dev/v1alpha1
+kind: DecisionPolicy
+metadata:
+  name: agent-action-firewall
+  version: 1.0.0
+  description: Judge a proposed coding-agent action.
+spec:
+  model: jev-latest
+  outcomes:
+    - allow
+    - review
+    - block
+  defaultOutcome: review
+
+  input:
+    requiredFacts:
+      action.kind: string
+      action.destructive: boolean
+      target.ownedBySession: boolean
+      authorization.explicit: boolean
+    optionalFacts:
+      target.path: string
+
+  preRules:
+    - id: block-unowned-destructive-target
+      description: A model cannot override the ownership floor.
+      when:
+        all:
+          - left: {fact: action.destructive}
+            op: eq
+            right: true
+          - left: {fact: target.ownedBySession}
+            op: eq
+            right: false
+      outcome: block
+
+  questions:
+    destructive:
+      type: noul
+      instructions: Is the proposed action destructive or hard to reverse?
+    blastRadius:
+      type: score
+      instructions: How broad is the potential impact of this action?
+      criteria:
+        - Confined to one disposable item
+        - Confined to the current project
+        - Could affect unrelated user work
+        - Could affect the host or external systems
+    actionClass:
+      type: choice
+      instructions: Which class best describes the proposed action?
+      criteria:
+        read: Reads state without changing it
+        reversible_write: Changes state with an ordinary recovery path
+        destructive_write: Deletes or irreversibly replaces state
+        external_side_effect: Changes an external system or contacts a person
+        unknown: None of the other classes clearly applies
+
+  decisionRules:
+    - id: review-ambiguous-action
+      description: An unclear or low-confidence classification goes to a human.
+      when:
+        any:
+          - left: {answer: actionClass, field: choice}
+            op: eq
+            right: unknown
+          - left: {answer: actionClass, field: confidence}
+            op: lt
+            right: 0.65
+      outcome: review
+
+    - id: block-high-risk-without-authorization
+      description: Wide blast radius needs an explicit go-ahead.
+      when:
+        all:
+          - left: {answer: blastRadius, field: score}
+            op: gte
+            right: 2.5
+          - left: {fact: authorization.explicit}
+            op: eq
+            right: false
+      outcome: block
+
+    - id: allow-owned-low-risk-action
+      description: Owned, non-destructive, and narrow enough to proceed.
+      when:
+        all:
+          - left: {fact: target.ownedBySession}
+            op: eq
+            right: true
+          - left: {answer: destructive, field: noul}
+            op: lt
+            right: 0.35
+          - left: {answer: blastRadius, field: score}
+            op: lt
+            right: 1.5
+      outcome: allow

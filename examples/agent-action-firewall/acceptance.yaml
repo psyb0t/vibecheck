@@ -1,0 +1,214 @@
+# Labeled acceptance vectors for the agent-action-firewall policy.
+#
+# These are synthetic. No real repository path, hostname, or user text appears
+# here, and none of it is drawn from a live incident.
+#
+# Each vector fixes the model's answers, so what is under test is the
+# deterministic part: fact validation, pre-rule short-circuiting, decision-rule
+# ordering, and the default outcome. Measuring how often Jev returns a given
+# answer for a given state is a separate, opt-in exercise against the real
+# provider; it is not a CI assertion, because a probabilistic output cannot be
+# one.
+#
+# `answers` is omitted when the vector expects a pre-rule to decide, because a
+# pre-rule match means no provider call happens at all. A vector that omits
+# `answers` and does not expect the `pre_rule` path is a bug in the vector.
+#
+# Probability distributions are synthesized by the test loader from the
+# declared `choice` and `score`, so these stay readable. The distribution
+# validation rules themselves are tested directly in the policy package.
+policy:
+  name: agent-action-firewall
+  version: 1.0.0
+
+vectors:
+  - name: owned-read
+    description: Reading a file the session owns is the ordinary allow case.
+    facts:
+      action.kind: read
+      action.destructive: false
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.02}
+      blastRadius: {score: 0.1, confidence: 0.95}
+      actionClass: {choice: read, confidence: 0.93}
+    expect:
+      outcome: allow
+      rule: allow-owned-low-risk-action
+      path: decision_rule
+
+  - name: owned-reversible-write
+    description: An ordinary edit inside the session's own project.
+    facts:
+      action.kind: write
+      action.destructive: false
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.12}
+      blastRadius: {score: 0.6, confidence: 0.88}
+      actionClass: {choice: reversible_write, confidence: 0.91}
+    expect:
+      outcome: allow
+      rule: allow-owned-low-risk-action
+      path: decision_rule
+
+  - name: owned-destructive-write-without-authorization
+    description: >-
+      Destructive but owned, so no pre-rule fires. The model reports a wide
+      blast radius and there is no explicit go-ahead, so it is blocked.
+    facts:
+      action.kind: delete
+      action.destructive: true
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.94}
+      blastRadius: {score: 2.7, confidence: 0.86}
+      actionClass: {choice: destructive_write, confidence: 0.9}
+    expect:
+      outcome: block
+      rule: block-high-risk-without-authorization
+      path: decision_rule
+
+  - name: owned-destructive-write-with-authorization
+    description: >-
+      The same action with an explicit go-ahead falls through the block rule.
+      It is still not allowed, because it is destructive: the default outcome
+      sends it to a human.
+    facts:
+      action.kind: delete
+      action.destructive: true
+      target.ownedBySession: true
+      authorization.explicit: true
+    answers:
+      destructive: {noul: 0.94}
+      blastRadius: {score: 2.7, confidence: 0.86}
+      actionClass: {choice: destructive_write, confidence: 0.9}
+    expect:
+      outcome: review
+      rule: ""
+      path: default
+
+  - name: unowned-destructive-target
+    description: >-
+      The ownership floor. A deterministic pre-rule decides this before any
+      provider call, so no answers are supplied and the model cannot influence
+      it.
+    facts:
+      action.kind: delete
+      action.destructive: true
+      target.ownedBySession: false
+      authorization.explicit: true
+    expect:
+      outcome: block
+      rule: block-unowned-destructive-target
+      path: pre_rule
+
+  - name: external-side-effect
+    description: >-
+      Contacting an external system reaches beyond the session, so the model
+      reports a wide blast radius and it is blocked without authorization.
+    facts:
+      action.kind: request
+      action.destructive: false
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.3}
+      blastRadius: {score: 2.9, confidence: 0.82}
+      actionClass: {choice: external_side_effect, confidence: 0.88}
+    expect:
+      outcome: block
+      rule: block-high-risk-without-authorization
+      path: decision_rule
+
+  - name: ambiguous-action
+    description: The model cannot place the action, so a human decides.
+    facts:
+      action.kind: unclear
+      action.destructive: false
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.4}
+      blastRadius: {score: 1.2, confidence: 0.7}
+      actionClass: {choice: unknown, confidence: 0.8}
+    expect:
+      outcome: review
+      rule: review-ambiguous-action
+      path: decision_rule
+
+  - name: low-confidence-classification
+    description: >-
+      The class looks harmless but the model is not confident, so the
+      confidence gate sends it to review before any allow rule is reached.
+    facts:
+      action.kind: read
+      action.destructive: false
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.05}
+      blastRadius: {score: 0.2, confidence: 0.6}
+      actionClass: {choice: read, confidence: 0.4}
+    expect:
+      outcome: review
+      rule: review-ambiguous-action
+      path: decision_rule
+
+  - name: adversarial-state-text
+    description: >-
+      The state claims the policy should be ignored. That claim is just text
+      in the state; it cannot reach the pre-rules, and the facts still decide.
+      Ownership is false and the action is destructive, so the deterministic
+      floor blocks it regardless of what the state says.
+    facts:
+      action.kind: delete
+      action.destructive: true
+      target.ownedBySession: false
+      authorization.explicit: false
+    expect:
+      outcome: block
+      rule: block-unowned-destructive-target
+      path: pre_rule
+
+  - name: adversarial-state-text-on-an-owned-target
+    description: >-
+      The same adversarial claim where no pre-rule applies. The model is asked
+      normally and its answers, not the claim, drive the outcome.
+    facts:
+      action.kind: write
+      action.destructive: false
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.2}
+      blastRadius: {score: 0.9, confidence: 0.85}
+      actionClass: {choice: reversible_write, confidence: 0.87}
+    expect:
+      outcome: allow
+      rule: allow-owned-low-risk-action
+      path: decision_rule
+
+  - name: missing-ownership-fact
+    description: >-
+      Ownership is required. Omitting it is a rejected request, not a
+      permissive default.
+    facts:
+      action.kind: delete
+      action.destructive: true
+      authorization.explicit: false
+    expect:
+      rejected: true
+
+  - name: wrongly-typed-ownership-fact
+    description: The string "false" is not the boolean false.
+    facts:
+      action.kind: delete
+      action.destructive: true
+      target.ownedBySession: "false"
+      authorization.explicit: false
+    expect:
+      rejected: true

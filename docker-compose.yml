@@ -5,10 +5,8 @@
 # root filesystem, init, resource and PID ceilings, bounded logs, an explicit
 # restart policy, a healthcheck, and loopback-only published ports.
 #
-# The subsystems this describes are not implemented yet. The HTTP listener and
-# its /healthz endpoint land with the API, so the stack cannot report healthy
-# until then. The file exists now so later work extends a reviewed baseline
-# instead of inventing deployment shape at release time.
+# Set VIBECHECK_TYPESAFE_API_KEY and VIBECHECK_POLICY_HOST_DIR in a gitignored
+# .env, then `docker compose up -d`. See docs/deployment.md.
 
 services:
   vibecheck:
@@ -75,8 +73,11 @@ services:
           cpus: "1.0"
           pids: 256
 
+    # Readiness, not liveness. /ready reports that the database answers, which
+    # is the condition under which this container can serve, so a
+    # depends_on: service_healthy elsewhere means "can actually take traffic".
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/ready"]
       interval: 10s
       timeout: 3s
       retries: 5

@@ -27,6 +27,7 @@ coverage.out
 coverage-percent.txt
 profile.out
 .cover/
+.cover-run/
 htmlcov/
 sec.sarif
 

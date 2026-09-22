@@ -30,6 +30,7 @@ git-update.sh
 build/
 coverage.*
 coverage-percent.txt
+.cover/
 *.log
 *.out
 __debug_*

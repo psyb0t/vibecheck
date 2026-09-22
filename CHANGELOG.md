@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1] - 2026-09-22
+
+- Fixed clean-checkout builds by shipping the embedded public suffix data required by the vendored Go dependency graph.
+- Clarified that Vibecheck is a general typed classification, scoring, and policy decision service, with the agent action firewall kept as one worked example.
+
 ## [0.2.0] - 2026-09-22
 
 - Added the complete typed decision pipeline: versioned YAML policies,

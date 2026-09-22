@@ -10,5 +10,5 @@ const (
 	MaxMetadataEntries     int    = 16
 	MaxMetadataValueLength int    = 256
 	MaxNoteLength          int    = 2000
-	SpecVersion            string = "0.2.0"
+	SpecVersion            string = "0.2.1"
 )

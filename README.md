@@ -6,19 +6,11 @@
 [![license](https://raw.githubusercontent.com/psyb0t/vibecheck/badges/license.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/psyb0t/vibecheck?style=flat-square)](https://hub.docker.com/r/psyb0t/vibecheck)
 
-AI agents are brilliant right up until they confidently do stupid shit.
-Vibecheck is the bouncer.
+Most software has to make fuzzy calls from messy state. Vibecheck makes those calls typed, reviewable, and hard to hand-wave away.
 
-Feed it messy state and trusted facts. It asks TypeSafe Jev narrow typed
-questions, runs the probabilities through a versioned YAML policy, and returns
-the exact rule and outcome that won. No word soup. No mystery branch. No model
-with a shell deciding that `0.73` feels close enough.
+Feed it messy state and trusted facts. It asks TypeSafe Jev narrow typed questions, runs the probabilities through a versioned YAML policy, and returns the exact rule and outcome that won. No word soup. No mystery branch. No model deciding that `0.73` feels close enough.
 
-Vibecheck never executes the action it judges. Your code stays in charge and
-decides what `allow`, `review`, `deny`, or your own outcomes actually mean.
-Every evaluation gets a stable ID, an audit row, the typed answers and
-probabilities, model identity, token usage, and the deterministic rule that
-made the call.
+Use it for agent action checks, fraud or abuse triage, moderation and approval queues, data-quality routing, or any other policy-backed classification, score, or decision. Vibecheck never executes the thing it judges. Your code stays in charge and decides what `allow`, `review`, `deny`, or your own outcomes actually mean. Every evaluation gets a stable ID, an audit row, typed answers and probabilities, model identity, token usage, and the deterministic rule that made the call.
 
 It runs today over REST and MCP, backed by SQLite or PostgreSQL, with
 Prometheus metrics on a separate internal listener. Idempotent retries replay
@@ -27,7 +19,7 @@ inputs and calibration reports are not built yet.
 
 ## Make it judge something
 
-Mount a policy, give it a TypeSafe key, and run the bastard:
+Mount a policy, give it a TypeSafe key, and run it:
 
 ```bash
 docker run --rm -p 8080:8080 \
@@ -47,6 +39,8 @@ traffic shape and error rates as free reconnaissance.
 Both `/mcp` and `/mcp/` hit the handler directly. No redirect eats your POST
 body. Policies are compiled once at startup, so a half-written YAML file never
 becomes a live rule set. Restart to load a policy change.
+
+The command mounts the agent action firewall example. It is a worked policy, not the product definition. Point `VIBECHECK_POLICY_DIR` at any directory of policy YAML or JSON that fits your own decision.
 
 For an actual deployment, use the hardened Compose file:
 
@@ -90,7 +84,7 @@ real TypeSafe account. See [docs/testing.md](docs/testing.md).
 gitignored.
 
 Tagged releases publish matching immutable images such as
-`psyb0t/vibecheck:v0.2.0`. Pin one for anything you intend to keep. `latest`
+`psyb0t/vibecheck:v0.2.1`. Pin one for anything you intend to keep. `latest`
 is for kicking the tires.
 
 ## Give agents the manual

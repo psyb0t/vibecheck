@@ -106,7 +106,7 @@ provider nobody is waiting on, and the retention loop stops with the process.
 
 ## Upgrading
 
-Tagged releases publish immutable images such as `psyb0t/vibecheck:v0.2.0`.
+Tagged releases publish immutable images such as `psyb0t/vibecheck:v0.2.1`.
 Pin one. `latest` is for trying it out, not for a deployment you intend to
 keep.
 

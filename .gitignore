@@ -32,7 +32,7 @@ htmlcov/
 sec.sarif
 
 # Runtime state
-data/
+/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

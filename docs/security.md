@@ -44,11 +44,13 @@ State is caller-supplied and untrusted. Treat it that way:
 - Outcomes are a closed set declared by the policy. A model cannot invent
   one.
 
-## Provider output never reaches the caller
+## Provider error bodies never reach the caller
 
 A provider error body can echo the request back. Vibecheck never forwards
 provider text into an API response or a log line. Errors are mapped to
 stable codes and fixed messages.
+
+Successful typed answers do reach the caller. They are the product: bounded choices, scores, probabilities, and legends that passed the policy contract.
 
 An integration test plants a marker string in the fake provider's error
 bodies and asserts it never appears in any Vibecheck response or log record.

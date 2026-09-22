@@ -53,14 +53,21 @@ func questionToAPI(question policy.CompiledQuestion) api.PolicyQuestion {
 	}
 
 	if len(question.ChoiceCriteria) > 0 {
-		criteria := make(map[string]string, len(question.ChoiceCriteria))
+		criteria := make(map[string]any, len(question.ChoiceCriteria))
 		maps.Copy(criteria, question.ChoiceCriteria)
 
 		entry.ChoiceCriteria = &criteria
 	}
 
+	if len(question.NoulCriteria) > 0 {
+		criteria := make(map[string]any, len(question.NoulCriteria))
+		maps.Copy(criteria, question.NoulCriteria)
+
+		entry.NoulCriteria = &criteria
+	}
+
 	if len(question.ScoreCriteria) > 0 {
-		levels := append([]string(nil), question.ScoreCriteria...)
+		levels := append([]any(nil), question.ScoreCriteria...)
 		entry.ScoreCriteria = &levels
 	}
 

@@ -53,7 +53,7 @@ type FakeSystemOneRequest struct {
 // FakeWireQuestion is one question as it arrives on the wire.
 type FakeWireQuestion struct {
 	Type         string `json:"type"`
-	Instructions string `json:"instructions"`
+	Instructions any    `json:"instructions,omitempty"`
 	Criteria     any    `json:"criteria,omitempty"`
 }
 
@@ -65,7 +65,7 @@ type FakeAnswer struct {
 	Noul          *float64           `json:"noul,omitempty"`
 	Confidence    *float64           `json:"confidence,omitempty"`
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
-	Legend        map[string]string  `json:"legend,omitempty"`
+	Legend        map[string]any     `json:"legend,omitempty"`
 }
 
 // FakeResponse is a complete System One reply.

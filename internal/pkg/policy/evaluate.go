@@ -2,6 +2,7 @@ package policy
 
 import (
 	"math"
+	"reflect"
 	"sort"
 	"strconv"
 
@@ -275,10 +276,19 @@ func validateScoreLevelEntries(
 			)
 		}
 
-		if _, ok := answer.Legend[key]; !ok {
+		legend, ok := answer.Legend[key]
+		if !ok {
 			return ctxerrors.Wrapf(
 				ErrProviderProtocol,
 				"question %q returned no legend entry for level %s",
+				question.ID, key,
+			)
+		}
+
+		if !reflect.DeepEqual(legend, question.ScoreCriteria[index]) {
+			return ctxerrors.Wrapf(
+				ErrProviderProtocol,
+				"question %q returned the wrong legend for level %s",
 				question.ID, key,
 			)
 		}

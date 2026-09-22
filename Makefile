@@ -29,7 +29,22 @@ COMPOSE_RENDERED := build/compose-rendered.json
 # Gitignored credentials for the paid provider. Only test-real reads it.
 REAL_PROVIDER_ENV_FILE ?= .env.real
 
-.PHONY: audit-compose test-api test-real
+.PHONY: audit-compose test-api test-core test-gotypesafe test-policy test-provider test-real typesafe-openapi-update
+
+typesafe-openapi-update: ## Refresh the checked-in TypeSafe OpenAPI snapshot
+	@$(MAKE) -C pkg/gotypesafe openapi-update
+
+test-gotypesafe: dev-image ## Run the public Go TypeSafe client tests
+	@$(DEV_RUN) go test -race ./pkg/gotypesafe/...
+
+test-core: dev-image ## Run policy and evaluation core tests
+	@$(DEV_RUN) go test -race ./internal/pkg/core/...
+
+test-policy: dev-image ## Run policy compiler and evaluator tests
+	@$(DEV_RUN) go test -race ./internal/pkg/policy/...
+
+test-provider: dev-image ## Run TypeSafe provider adapter tests
+	@$(DEV_RUN) go test -race ./internal/pkg/provider/...
 
 # The framework's `test` and `test-integration` do not pass -tags=integration,
 # so the testcontainers suites they would run are compiled out; only

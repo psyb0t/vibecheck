@@ -1,88 +1,105 @@
-# Vibecheck setup and current boundary
+# Run and connect to Vibecheck
 
-## Current status
+Vibecheck ships as `psyb0t/vibecheck` on Docker Hub. Pull and run the image. Do not build from source unless the user explicitly asks for development work.
 
-The service runs. One registered Servicepack service, `vibecheck-server`,
-starts the whole thing: it parses config, compiles the mounted policies,
-opens and migrates the database, builds the TypeSafe Jev adapter, then serves
-REST and MCP on one public listener with metrics on a separate internal one.
+## Start the image
 
-Built and covered by behavioral tests: the policy compiler and evaluator, the
-Jev adapter, SQLite and PostgreSQL persistence with reversible migrations,
-encrypted input retention, idempotency, the REST API, the MCP server, the
-retention cleanup loop, and the production Docker image.
-
-Idempotency replay is built. Re-evaluating retained inputs and calibration
-reports are not built.
-
-Do not claim a route, MCP tool, or config value works until you have found
-its implementation and the behavioral test that covers it.
-
-## Development setup
-
-Requirements:
-
-- Docker with Compose support
-- Make
-- Git
-
-The host does not need Go. Build and checks use the pinned development image.
+Create a local policy directory. The repository includes a worked policy that can be downloaded directly:
 
 ```bash
-git clone https://github.com/psyb0t/vibecheck
-cd vibecheck
-make help
-make build
-make test
+mkdir -p policies
+curl -fsSL https://raw.githubusercontent.com/psyb0t/vibecheck/main/examples/support-ticket-router/policy.yaml \
+  -o policies/support-ticket-router.yaml
 ```
 
-Running the service from the published image:
+Start Vibecheck:
 
 ```bash
-docker run --rm -p 8080:8080 \
+docker run -d --name vibecheck \
+  --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
   -e VIBECHECK_HTTP_LISTEN_ADDRESS=0.0.0.0:8080 \
   -e VIBECHECK_METRICS_LISTEN_ADDRESS=0.0.0.0:9091 \
-  -e VIBECHECK_TYPESAFE_API_KEY=your-key \
-  -v "$PWD/examples/agent-action-firewall:/config/policies:ro" \
+  -e VIBECHECK_TYPESAFE_API_KEY=your-typesafe-api-key-here \
+  -v "$PWD/policies:/config/policies:ro" \
   -v vibecheck-data:/data \
   psyb0t/vibecheck:latest run
 ```
 
-The REST API is under `/v1`. The MCP endpoint is `/mcp`, and `/mcp/` reaches
-the same handler without a redirect. `/healthz` and `/ready` are unversioned
-and unauthenticated. Metrics are only on the internal listener.
+Use `latest` only to try the service. Pin an immutable `vX.Y.Z` image for a lasting deployment. Keep `/data` on a volume and policy files on a read-only mount.
 
-Use an immutable `vX.Y.Z` image in any repeatable environment. The release
-pipeline publishes both `latest` from `main` and the matching tag from a tagged
-release.
-
-## Configuration
-
-`.env.example` documents every setting with its default. The parser and its
-validation live in `internal/pkg/config`. Invalid configuration fails the
-process at startup rather than at the first request that reads it.
-
-Two invariants worth knowing: `VIBECHECK_STORE_INPUTS` without a
-`VIBECHECK_DATA_KEY` is refused, and the metrics listener must not share an
-address with the public API.
-
-Never commit a real `.env`, TypeSafe credential, API token, or encryption
-key. The opt-in live-provider suite reads its credential from a gitignored
-`.env.real`; see `docs/testing.md`.
-
-## Servicepack updates
-
-Vibecheck owns its product code but keeps the framework update boundary:
+Prove the service is ready:
 
 ```bash
-make servicepack-update
-make servicepack-update-review
-make build
-make lint
-make test
-make test-api
-make servicepack-update-merge
+curl -fsS http://127.0.0.1:8080/ready
 ```
 
-Do not patch framework-owned files to avoid the update workflow. The next
-Servicepack update replaces them.
+## Authentication
+
+Set `VIBECHECK_API_TOKEN` on the container to enable bearer authentication across REST and MCP. Send this header from clients:
+
+```text
+Authorization: Bearer <token>
+```
+
+An empty token disables application authentication. Keep that mode on loopback or behind an authenticating proxy.
+
+## REST
+
+The REST API is under `/v1`. The main routes are:
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/v1/evaluations` | Evaluate state against a policy |
+| GET | `/v1/evaluations` | List durable evaluations |
+| GET | `/v1/evaluations/{id}` | Read one evaluation |
+| POST | `/v1/evaluations/{id}/feedback` | Record the expected outcome |
+| GET | `/v1/policies` | List loaded policies |
+| GET | `/v1/policies/{name}/versions/{version}` | Read one policy |
+| POST | `/v1/policies/validate` | Compile a candidate without installing it |
+
+Use `Idempotency-Key` on evaluation requests that may be retried. The exact request and response schema lives in `https://github.com/psyb0t/vibecheck/blob/main/api/api.yml`.
+
+## MCP
+
+Use Streamable HTTP at:
+
+```text
+http://127.0.0.1:8080/mcp
+```
+
+Example client configuration:
+
+```json
+{
+  "mcpServers": {
+    "vibecheck": {
+      "type": "http",
+      "url": "http://127.0.0.1:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${VIBECHECK_API_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Remove `headers` when authentication is disabled. Both `/mcp` and `/mcp/` work without redirects.
+
+## Policies
+
+Mount YAML or JSON policy files at `/config/policies`. Vibecheck compiles them once during startup and refuses invalid files. Restart the container after changing a mounted policy.
+
+A policy defines trusted fact types, bounded Jev questions, valid outcomes, a default outcome, pre-rules, and ordered decision rules. Read the policy grammar at `https://github.com/psyb0t/vibecheck/blob/main/docs/policy-authoring.md`.
+
+## Storage and retention
+
+SQLite at `/data/vibecheck.sqlite` is the default. Configure PostgreSQL through the `VIBECHECK_DB_*` variables for shared deployments.
+
+Raw state and facts are not retained by default. `VIBECHECK_STORE_INPUTS=true` requires a valid 32-byte base64 `VIBECHECK_DATA_KEY`; startup fails rather than storing plaintext without it. Evaluation retention, idempotency retention, and cleanup intervals are configurable.
+
+## Operations
+
+The public listener provides `/healthz`, `/ready`, REST, and MCP. Prometheus metrics are served at `/metrics` on `VIBECHECK_METRICS_LISTEN_ADDRESS`. Keep the metrics listener private.
+
+Configuration is read once at startup. The full environment reference is `https://github.com/psyb0t/vibecheck/blob/main/.env.example`. Deployment hardening and upgrade instructions are at `https://github.com/psyb0t/vibecheck/blob/main/docs/deployment.md`.

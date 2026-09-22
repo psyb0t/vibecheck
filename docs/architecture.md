@@ -45,11 +45,7 @@ semantics produced the decision.
 and returns typed answers, usage, and per-attempt records. It knows nothing
 about HTTP DTOs or database rows.
 
-`internal/pkg/provider/jev` is the one implementation, speaking TypeSafe Jev
-System One. It owns the bounded HTTP client, authentication, timeouts,
-concurrency limiting, the response-size ceiling, strict response validation,
-retry classification, and `Retry-After` handling. The seam lets tests drive
-the real pipeline with a scripted provider.
+`internal/pkg/provider/typesafe` adapts the public `pkg/gotypesafe` client to Vibecheck's decision types. The public client is generated from TypeSafe's OpenAPI document and owns authentication, timeouts, concurrency limiting, the response-size ceiling, strict response validation, retry classification, and `Retry-After` handling. The seam lets tests drive the real pipeline with a scripted provider.
 
 ### core
 

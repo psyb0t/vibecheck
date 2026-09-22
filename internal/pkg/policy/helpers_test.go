@@ -194,7 +194,7 @@ func validAnswers() decision.Answers {
 			Confidence:    0.9,
 			HasConfidence: true,
 			Probabilities: map[string]float64{"0": 0.5, "1": 0.5, "2": 0.0},
-			Legend: map[string]string{
+			Legend: map[string]any{
 				"0": scoreLevelDisposable,
 				"1": scoreLevelProject,
 				"2": scoreLevelUnrelated,

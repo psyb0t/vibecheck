@@ -171,8 +171,8 @@ func defaultReply() testinfra.FakeReply {
 
 // blastRadiusLegend names each score level, keyed by its index, which is the
 // form the policy contract requires.
-func blastRadiusLegend() map[string]string {
-	return map[string]string{
+func blastRadiusLegend() map[string]any {
+	return map[string]any{
 		"0": "Confined to one disposable item",
 		"1": "Confined to the current project",
 		"2": "Could affect unrelated user work",

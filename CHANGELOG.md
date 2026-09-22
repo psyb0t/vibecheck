@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0] - 2026-09-22
+
+- Corrected the TypeSafe contract so callers submit raw state and trusted facts while Jev produces the typed classifications, scores, and probabilities.
+- Added `pkg/gotypesafe`, a public Go client generated from the TypeSafe OpenAPI specification, with bounded retries and response validation.
+- Added a support-ticket routing policy that demonstrates the simplest raw-state decision flow.
+- Reworked the README, deployment guide, and bundled agent skill around the published Docker image, policy mounting, REST, MCP, storage, and operations.
+- Added user-facing Codex plugin metadata and corrected the skill frontmatter to match the published skill contract.
+
 ## [0.2.1] - 2026-09-22
 
 - Fixed clean-checkout builds by shipping the embedded public suffix data required by the vendored Go dependency graph.

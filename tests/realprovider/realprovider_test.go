@@ -123,7 +123,7 @@ func TestLiveProviderAnswersTheDocumentedContract(t *testing.T) {
 	})
 
 	assert.Equal(
-		t, "succeeded", result["status"],
+		t, "completed", result["status"],
 		"the live provider answered within the contract",
 	)
 

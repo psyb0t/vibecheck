@@ -36,9 +36,10 @@ type canonicalPolicy struct {
 type canonicalQuestion struct {
 	ID             string                `json:"id"`
 	Type           decision.QuestionType `json:"type"`
-	Instructions   string                `json:"instructions"`
-	ChoiceCriteria map[string]string     `json:"choiceCriteria,omitempty"`
-	ScoreCriteria  []string              `json:"scoreCriteria,omitempty"`
+	Instructions   any                   `json:"instructions,omitempty"`
+	NoulCriteria   map[string]any        `json:"noulCriteria,omitempty"`
+	ChoiceCriteria map[string]any        `json:"choiceCriteria,omitempty"`
+	ScoreCriteria  []any                 `json:"scoreCriteria,omitempty"`
 }
 
 type canonicalRule struct {
@@ -73,6 +74,7 @@ func canonicalize(compiled *Compiled) ([]byte, string, error) {
 			ID:             question.ID,
 			Type:           question.Type,
 			Instructions:   question.Instructions,
+			NoulCriteria:   question.NoulCriteria,
 			ChoiceCriteria: question.ChoiceCriteria,
 			ScoreCriteria:  question.ScoreCriteria,
 		})

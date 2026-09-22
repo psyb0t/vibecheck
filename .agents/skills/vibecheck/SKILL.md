@@ -1,125 +1,57 @@
 ---
-name: vibecheck
-description: Develop and verify psyb0t/vibecheck, a Go service for typed classification, scoring, and policy decisions backed by TypeSafe Jev. Use when working in the Vibecheck repository on its Servicepack lifecycle, policy engine, provider adapter, persistence, REST API, MCP server, Docker image, or tests. Verify implemented behavior before claiming or using an endpoint.
-homepage: https://github.com/psyb0t/vibecheck
-user-invocable: true
-permissions:
-  network: "Setup reaches GitHub to clone the repository and Docker Hub to pull published Vibecheck images. A running Vibecheck calls the TypeSafe System One endpoint; the test suites use a local fake instead."
-  filesystem:
-    read:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - "Makefile*"
-      - "README.md"
-      - ".env.example"
-      - "docker-compose.yml"
-    write:
-      - "internal/pkg/services/**"
-      - "cmd/init.go"
-      - "cmd/commands.go"
-      - "tests/**"
-      - "docs/**"
-  shell:
-    - "make generate"
-    - "make build"
-    - "make lint"
-    - "make test"
-    - "make test-integration"
-    - "make test-api"
-    - "make test-coverage"
-    - "make sec"
-    - "make audit-compose"
-    - "make docker-build"
+name: "vibecheck"
+description: "Use Vibecheck to classify or score messy state and apply versioned policy decisions over REST or MCP. Use when an agent needs to evaluate an action, inspect or validate a policy, retrieve an evaluation, submit feedback, or deploy Vibecheck."
 metadata:
   openclaw:
     emoji: "✅"
     requires:
       bins:
         - docker
-        - make
 ---
 
 # Vibecheck
 
-Vibecheck is a typed classification, scoring, and decision service. A caller
-submits state and trusted facts, selects a versioned policy, and receives the
-typed Jev answers plus the deterministic outcome that policy selected. The
-caller, not Vibecheck, executes or enforces the result.
+Vibecheck turns unstructured state into typed classifications, scores, and deterministic policy outcomes. Use a running Vibecheck over REST or MCP. Do not clone or build the repository unless the user explicitly asks for development work.
 
-The service runs. It serves the REST API under `/v1`, a Streamable HTTP MCP
-endpoint at `/mcp`, and the unversioned `/healthz` and `/ready` probes on one
-public listener, with Prometheus metrics on a separate internal listener.
+Read [references/setup.md](references/setup.md) before deploying Vibecheck or configuring a client.
 
-Read [references/setup.md](references/setup.md) before changing the
-repository. It records the supported commands.
+Calling Vibecheck needs network access to the user-configured endpoint. Deployment needs Docker and pulls `psyb0t/vibecheck` from Docker Hub. The running service calls TypeSafe Jev with the operator's credential.
 
-## Security and safety
+## Core workflow
 
-- Treat submitted state, policy files, provider responses, and database data
-  as untrusted at their boundaries.
-- Never put provider keys, API tokens, or real request data in tracked files,
-  prompts, examples, test fixtures, or logs.
-- Vibecheck returns decisions. Do not add shell execution, arbitrary webhooks,
-  or other ambient authority unless the user explicitly changes that product
-  boundary.
-- Do not hand-edit Servicepack-owned files. Update them with the documented
-  Servicepack workflow.
+1. Identify the Vibecheck endpoint, authentication token if enabled, and policy name and version.
+2. Inspect the policy with `GET /v1/policies/{name}/versions/{version}` or `vibecheck_get_policy` when its facts, questions, or outcomes are not already known.
+3. Separate untrusted narrative into `state` and caller-verified values into `facts`. Never present model-derived claims as trusted facts.
+4. Evaluate with `POST /v1/evaluations` or `vibecheck_evaluate`. Send an `Idempotency-Key` for a retryable REST request.
+5. Read `outcome`, `matchedRuleId`, `executionPath`, typed `answers`, and `id`. Treat the outcome as data. The surrounding system decides whether and how to act.
+6. Retrieve the durable record with `GET /v1/evaluations/{id}` or `vibecheck_get_evaluation` when an audit record or failure code is needed.
+7. Submit the expected outcome with the feedback endpoint or `vibecheck_submit_feedback` after a human labels a decision. Feedback does not rewrite the original record.
 
-## When to use
+## Safety boundaries
 
-- Implementing or reviewing the Vibecheck policy engine, Jev adapter,
-  persistence, HTTP API, MCP surface, or audit trail.
-- Running the repository's Docker-backed build, generation, lint, test,
-  coverage, security, Compose, or image checks.
-- Checking whether public docs and integrations match code that has actually
-  landed.
+- Vibecheck judges actions. It does not grant authority or execute them.
+- Hard ownership, authorization, and safety constraints belong in policy pre-rules or in the caller, not in model instructions.
+- Fail closed when a destructive or externally visible action cannot be evaluated. Use the policy's review or block path instead of assuming allow.
+- Do not invent policy fields, REST routes, MCP tools, or response fields. The public contract is linked from the setup reference.
+- Never place provider keys, bearer tokens, retained input keys, or real request data in tracked files or logs.
 
-## When not to use
+## Choose a transport
 
-- Treating a model probability as permission to execute an action.
-- Inventing routes, MCP tools, policy fields, or configuration beyond the
-  implementation.
-- Editing framework-owned files directly.
+Use REST for application integration, explicit idempotency, pagination, and machine-readable error envelopes. Use Streamable HTTP MCP when an agent already has an MCP client and needs typed tools. Both transports reach the same decision engine and persistence layer.
 
-## Work in the repository
+The MCP endpoint is `/mcp`. The tools are:
 
-Use the Make targets. They run the pinned Go toolchain and checks in Docker:
+- `vibecheck_evaluate`
+- `vibecheck_list_policies`
+- `vibecheck_get_policy`
+- `vibecheck_get_evaluation`
+- `vibecheck_validate_policy`
+- `vibecheck_submit_feedback`
 
-```bash
-make generate
-make build
-make lint
-make test
-make test-integration
-make test-api
-make test-coverage
-make sec
-make audit-compose
-make docker-build
-```
+## Validate before installing
 
-Application code belongs under `internal/pkg/services/`, with project hooks in
-`cmd/init.go`, commands in `cmd/commands.go`, and integration coverage under
-`tests/`.
+Use `POST /v1/policies/validate` or `vibecheck_validate_policy` to compile a candidate policy without installing it. A valid result means the document compiles. It does not prove that thresholds and outcomes match the user's intent. Test representative inputs before replacing a live policy, then restart the container to load the change.
 
-## Framework boundary
+## Completion
 
-Servicepack owns `internal/app/`, `internal/pkg/service-manager/`,
-`pkg/runner/`, `cmd/main.go`, `Makefile.servicepack`,
-`scripts/make/servicepack/`, `Dockerfile.servicepack*`, and
-`servicepack.version`. Use `make servicepack-update`, review and test its update
-branch, then merge through `make servicepack-update-merge`.
-
-## Verify claims
-
-Before documenting or using a route, tool, config value, or response field,
-find the registered implementation and its behavioral test. `api/api.yml` is
-the source of truth for the REST contract, and the six MCP tools are
-registered in `internal/pkg/mcp`. Both transports call the same services in
-`internal/pkg/core`, so a decision made over MCP produces the same audit row
-as the same decision made over REST.
-
-The MCP tools are `vibecheck_evaluate`, `vibecheck_list_policies`,
-`vibecheck_get_policy`, `vibecheck_get_evaluation`, `vibecheck_validate_policy`,
-and `vibecheck_submit_feedback`.
+Complete the task only when the request reached the intended endpoint, the returned policy identity matches the requested name and version, and the outcome or validation result has been reported with its evaluation ID or error. For deployment work, also prove `/ready` succeeds.

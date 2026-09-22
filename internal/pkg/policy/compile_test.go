@@ -56,7 +56,7 @@ func TestCompileResolvesQuestionCriteriaPerType(t *testing.T) {
 	score := compiled.Questions[questionSpread]
 	assert.Equal(
 		t,
-		[]string{scoreLevelDisposable, scoreLevelProject, scoreLevelUnrelated},
+		[]any{scoreLevelDisposable, scoreLevelProject, scoreLevelUnrelated},
 		score.ScoreCriteria,
 		"score levels keep document order: the index is the level number",
 	)
@@ -69,9 +69,61 @@ func TestCompileResolvesQuestionCriteriaPerType(t *testing.T) {
 		"choice keys are sorted for determinism",
 	)
 	assert.Equal(
-		t, "", choice.ChoiceCriteria[choiceUnknown],
-		"a null option description is allowed and becomes empty",
+		t, nil, choice.ChoiceCriteria[choiceUnknown],
+		"a null option description remains null",
 	)
+}
+
+func TestCompileAcceptsTheOfficialStructuredQuestionContract(t *testing.T) {
+	t.Parallel()
+
+	const document = `apiVersion: vibecheck.psyb0t.dev/v1alpha1
+kind: DecisionPolicy
+metadata:
+  name: structured-questions
+  version: 1.0.0
+spec:
+  outcomes: [route, review]
+  defaultOutcome: review
+  questions:
+    requiresReview:
+      type: noul
+      instructions:
+        question: Does this request require human review?
+        inspect: state.request
+      criteria:
+        true:
+          meaning: A person must decide.
+          signals: [ambiguous, high-impact]
+        false: Routine and reversible.
+    destination:
+      type: choice
+      instructions:
+        question: Which team should receive the request?
+      criteria:
+        billing:
+          topics: [charges, invoices, refunds]
+        technical: [bugs, outages, integrations]
+        other: null
+    urgency:
+      type: score
+      instructions: How urgently should this be handled?
+      criteria:
+        - label: routine
+          examples: [general question]
+        - [time-sensitive, blocking]
+  decisionRules:
+    - id: route-confident-destination
+      when:
+        left: {answer: destination, field: confidence}
+        op: gte
+        right: 0.7
+      outcome: route
+`
+
+	compiled, err := policy.CompileBytes([]byte(document), len(document))
+	require.NoError(t, err)
+	require.Len(t, compiled.Questions, 3)
 }
 
 func TestCompileRejectsSchemaIdentity(t *testing.T) {
@@ -360,14 +412,6 @@ func TestCompileRejectsBadQuestions(t *testing.T) {
 			}),
 		},
 		{
-			"blank instructions",
-			mutate(func(d *policy.Document) {
-				question := d.Spec.Questions[questionRisky]
-				question.Instructions = "   "
-				d.Spec.Questions[questionRisky] = question
-			}),
-		},
-		{
 			"instructions one over the ceiling",
 			mutate(func(d *policy.Document) {
 				question := d.Spec.Questions[questionRisky]
@@ -378,7 +422,7 @@ func TestCompileRejectsBadQuestions(t *testing.T) {
 			}),
 		},
 		{
-			"noul with criteria",
+			"noul criteria as a list",
 			mutate(func(d *policy.Document) {
 				question := d.Spec.Questions[questionRisky]
 				question.Criteria = []any{"yes", "no"}
@@ -425,7 +469,7 @@ func TestCompileRejectsBadQuestions(t *testing.T) {
 			}),
 		},
 		{
-			"choice option description not a string",
+			"choice option description is a number",
 			mutate(func(d *policy.Document) {
 				question := d.Spec.Questions[questionClass]
 				question.Criteria = map[string]any{
@@ -467,14 +511,6 @@ func TestCompileRejectsBadQuestions(t *testing.T) {
 			mutate(func(d *policy.Document) {
 				question := d.Spec.Questions[questionSpread]
 				question.Criteria = []any{testLowCriteria, 7}
-				d.Spec.Questions[questionSpread] = question
-			}),
-		},
-		{
-			"score level blank",
-			mutate(func(d *policy.Document) {
-				question := d.Spec.Questions[questionSpread]
-				question.Criteria = []any{testLowCriteria, "  "}
 				d.Spec.Questions[questionSpread] = question
 			}),
 		},

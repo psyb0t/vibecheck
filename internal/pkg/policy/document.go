@@ -35,6 +35,8 @@ const (
 	MaxDescriptionLength  = 512
 	MaxInstructionsLength = 4096
 	MaxCriteriaTextLength = 1024
+	MaxQuestionValueDepth = 16
+	MaxQuestionValueNodes = 512
 	MaxVersionLength      = 32
 	MaxStringValueLength  = 1024
 )
@@ -136,9 +138,9 @@ type Input struct {
 // description map for a choice, and absent for a noul. Compile resolves it
 // into the typed CompiledQuestion.
 type Question struct {
-	Type         decision.QuestionType `json:"type"               yaml:"type"`
-	Instructions string                `json:"instructions"       yaml:"instructions"`       //nolint:lll // dual json/yaml struct tag cannot be split
-	Criteria     any                   `json:"criteria,omitempty" yaml:"criteria,omitempty"` //nolint:lll // dual json/yaml struct tag cannot be split
+	Type         decision.QuestionType `json:"type"                   yaml:"type"`                   //nolint:lll // aligned dual tags cannot be split
+	Instructions any                   `json:"instructions,omitempty" yaml:"instructions,omitempty"` //nolint:lll // dual json/yaml struct tag cannot be split
+	Criteria     any                   `json:"criteria,omitempty"     yaml:"criteria,omitempty"`     //nolint:lll // dual json/yaml struct tag cannot be split
 }
 
 // Rule is one entry in preRules or decisionRules.

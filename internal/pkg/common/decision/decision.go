@@ -234,8 +234,9 @@ type Answer struct {
 	// index rendered as a decimal string for a score.
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
 
-	// Legend maps a score level index to its description. Score only.
-	Legend map[string]string `json:"legend,omitempty"`
+	// Legend maps a score level index to its structured description.
+	// Score only.
+	Legend map[string]any `json:"legend,omitempty"`
 }
 
 // Field returns the value of one answer field and whether that field exists on

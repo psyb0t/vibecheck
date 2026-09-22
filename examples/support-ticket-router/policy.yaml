@@ -1,0 +1,34 @@
+apiVersion: vibecheck.psyb0t.dev/v1alpha1
+kind: DecisionPolicy
+metadata:
+  name: support-ticket-router
+  version: 1.0.0
+  description: Route a support message to the right queue.
+spec:
+  model: jev-latest
+  outcomes:
+    - billing
+    - technical
+    - other
+  defaultOutcome: other
+  questions:
+    destination:
+      type: choice
+      instructions: Which support queue should receive this message?
+      criteria:
+        billing: Charges, invoices, payments, and refunds
+        technical: Bugs, outages, setup, and integrations
+        other: Anything else
+  decisionRules:
+    - id: route-billing
+      when:
+        left: {answer: destination, field: choice}
+        op: eq
+        right: billing
+      outcome: billing
+    - id: route-technical
+      when:
+        left: {answer: destination, field: choice}
+        op: eq
+        right: technical
+      outcome: technical

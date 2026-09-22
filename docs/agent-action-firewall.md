@@ -8,12 +8,10 @@ way it loads any other policy and gives it no special treatment.
 
 ## What it decides
 
-A caller proposes an action and supplies four facts it already knows:
+A caller proposes an action as raw state and supplies two authoritative facts it already knows:
 
 | Fact | Type | Meaning |
 |---|---|---|
-| `action.kind` | string | What sort of operation this is |
-| `action.destructive` | boolean | Whether it deletes or irreversibly replaces state |
 | `target.ownedBySession` | boolean | Whether the target belongs to this session |
 | `authorization.explicit` | boolean | Whether a human explicitly approved it |
 
@@ -29,22 +27,20 @@ One pre-rule runs before the provider is called:
 
 ```yaml
   preRules:
-    - id: block-unowned-destructive-target
-      description: A model cannot override the ownership floor.
+    - id: block-unowned-unauthorized-target
+      description: An unowned target needs explicit authorization.
       when:
         all:
-          - left: {fact: action.destructive}
-            op: eq
-            right: true
           - left: {fact: target.ownedBySession}
+            op: eq
+            right: false
+          - left: {fact: authorization.explicit}
             op: eq
             right: false
       outcome: block
 ```
 
-A destructive action on a target the session does not own is blocked from
-facts alone. No provider call happens, so nothing in the caller's `state` is
-ever read, and no text in it can argue with the result.
+An action on a target the session does not own is blocked unless a human explicitly authorized it. No provider call happens, so nothing in the caller's `state` is ever read, and no text in it can argue with the result.
 
 That is the difference between this and asking a model nicely. The hard
 constraint sits outside the model's reach by construction.
@@ -103,15 +99,13 @@ curl -sS http://127.0.0.1:8080/v1/evaluations \
     "policyRef": {"name": "agent-action-firewall", "version": "1.0.0"},
     "state": {"command": "rm -rf /etc/nginx"},
     "facts": {
-      "action.kind": "shell",
-      "action.destructive": true,
       "target.ownedBySession": false,
       "authorization.explicit": false
     }
   }'
 ```
 
-That returns `block` with `matchedRuleId: block-unowned-destructive-target`
+That returns `block` with `matchedRuleId: block-unowned-unauthorized-target`
 and `executionPath: pre_rule`, and `usage` shows no tokens spent.
 
 ## Using the answer

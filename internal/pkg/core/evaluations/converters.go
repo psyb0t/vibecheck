@@ -153,12 +153,12 @@ func probabilitiesToAPI(source map[string]float64) *map[string]float64 {
 	return &projected
 }
 
-func legendToAPI(source map[string]string) *map[string]string {
+func legendToAPI(source map[string]any) *map[string]any {
 	if len(source) == 0 {
 		return nil
 	}
 
-	projected := make(map[string]string, len(source))
+	projected := make(map[string]any, len(source))
 	maps.Copy(projected, source)
 
 	return &projected

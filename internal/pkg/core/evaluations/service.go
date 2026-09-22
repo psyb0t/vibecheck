@@ -534,6 +534,7 @@ func buildProviderRequest(
 			ID:             question.ID,
 			Type:           question.Type,
 			Instructions:   question.Instructions,
+			NoulCriteria:   question.NoulCriteria,
 			ChoiceCriteria: question.ChoiceCriteria,
 			ScoreCriteria:  question.ScoreCriteria,
 		})

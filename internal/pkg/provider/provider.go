@@ -21,14 +21,17 @@ import (
 type Question struct {
 	ID           string
 	Type         decision.QuestionType
-	Instructions string
+	Instructions any
+
+	// NoulCriteria optionally describes the true and false outcomes. Noul only.
+	NoulCriteria map[string]any
 
 	// ChoiceCriteria maps option key to its rubric description. Choice only.
-	ChoiceCriteria map[string]string
+	ChoiceCriteria map[string]any
 
 	// ScoreCriteria is the ordered low-to-high level descriptions, where the
 	// index is the level number. Score only.
-	ScoreCriteria []string
+	ScoreCriteria []any
 }
 
 // Request is one provider call. Every question is evaluated against the same

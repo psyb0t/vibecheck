@@ -1,0 +1,8 @@
+package: typesafe
+output: api.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  client-type-name: GeneratedClient
+  skip-prune: true

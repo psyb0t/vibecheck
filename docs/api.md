@@ -20,7 +20,7 @@ prefix, because a probe should not have to track an API major.
 | GET | `/v1/policies/{policyName}/versions/{policyVersion}` | Fetch one policy |
 | POST | `/v1/policies/validate` | Compile a candidate policy without installing it |
 | GET | `/healthz` | Liveness |
-| GET | `/ready` | Readiness, reports that the database answers |
+| GET | `/ready` | Readiness, reports a TypeSafe key is set and the database answers |
 
 Metrics are served on a separate listener and are never on the public port.
 
@@ -34,8 +34,6 @@ curl -sS http://127.0.0.1:8080/v1/evaluations \
     "policyRef": {"name": "agent-action-firewall", "version": "1.0.0"},
     "state": {"command": "rm -rf ./build"},
     "facts": {
-      "action.kind": "shell",
-      "action.destructive": true,
       "target.ownedBySession": true,
       "authorization.explicit": false
     }

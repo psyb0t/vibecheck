@@ -16,7 +16,7 @@ import (
 	"github.com/psyb0t/vibecheck/internal/pkg/metrics"
 	"github.com/psyb0t/vibecheck/internal/pkg/policy"
 	"github.com/psyb0t/vibecheck/internal/pkg/provider"
-	"github.com/psyb0t/vibecheck/internal/pkg/provider/jev"
+	"github.com/psyb0t/vibecheck/internal/pkg/provider/typesafe"
 	"github.com/psyb0t/vibecheck/internal/pkg/secrets"
 )
 
@@ -159,13 +159,13 @@ func buildSealer(cfg config.Config) (*secrets.Sealer, error) {
 	return sealer, nil
 }
 
-// buildProvider builds the Jev adapter with metrics wired to every attempt.
+// buildProvider wires TypeSafe attempt metrics into the provider adapter.
 func buildProvider(
 	cfg config.Config,
 	recorder *metrics.Metrics,
 ) (provider.Provider, error) {
-	client, err := jev.New(
-		jev.Config{
+	client, err := typesafe.New(
+		typesafe.Config{
 			BaseURL:          cfg.TypeSafeBaseURL,
 			APIKey:           cfg.TypeSafeAPIKey,
 			DefaultModel:     cfg.TypeSafeModel,
@@ -174,7 +174,7 @@ func buildProvider(
 			Concurrency:      cfg.TypeSafeConcurrency,
 			MaxAttempts:      cfg.TypeSafeMaxAttempts,
 		},
-		jev.WithAttemptObserver(func(attempt provider.Attempt) {
+		typesafe.WithAttemptObserver(func(attempt provider.Attempt) {
 			recorder.ObserveProviderAttempt(
 				attempt.StatusCode,
 				attempt.Err != nil,
@@ -183,7 +183,7 @@ func buildProvider(
 		}),
 	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "build jev client")
+		return nil, ctxerrors.Wrap(err, "build TypeSafe client")
 	}
 
 	return client, nil
@@ -229,18 +229,25 @@ func buildRouter(
 		RateLimitBurst:    cfg.RateLimitBurst,
 		Metrics:           recorder,
 		MCPHandler:        mcpHandler,
-		Ready:             readinessProbe(database),
+		Ready: readinessProbe(
+			database,
+			cfg.TypeSafeAPIKey != "",
+		),
 	}), nil
 }
 
-// readinessProbe reports whether the database still answers.
+// readinessProbe reports whether required local dependencies and configuration
+// are usable without making a billable provider request.
 //
 // It is deliberately the only dependency checked. A readiness probe that
 // calls the decision provider would bill a request per probe and would mark
 // the service down for a provider blip it is designed to retry through.
-func readinessProbe(database *db.Database) func() bool {
+func readinessProbe(
+	database *db.Database,
+	hasTypeSafeAPIKey bool,
+) func() bool {
 	return func() bool {
-		return database.SQL.Ping() == nil
+		return hasTypeSafeAPIKey && database.SQL.Ping() == nil
 	}
 }
 

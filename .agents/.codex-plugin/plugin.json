@@ -1,11 +1,27 @@
 {
   "name": "vibecheck",
-  "version": "0.2.1",
-  "description": "Develop and verify the Vibecheck typed classification, scoring, and policy decision service.",
+  "version": "0.3.0",
+  "description": "Use Vibecheck for typed classification, scoring, and policy decisions over REST or MCP.",
   "author": { "name": "psyb0t", "url": "https://github.com/psyb0t" },
   "homepage": "https://github.com/psyb0t/vibecheck",
   "repository": "https://github.com/psyb0t/vibecheck",
   "license": "MIT",
+  "interface": {
+    "displayName": "Vibecheck",
+    "shortDescription": "Typed classifications and policy decisions",
+    "longDescription": "Classify or score unstructured state, apply deterministic versioned policies, and inspect durable decisions through Vibecheck's REST and MCP transports.",
+    "developerName": "psyb0t",
+    "category": "Developer Tools",
+    "capabilities": [
+      "MCP Streamable HTTP",
+      "REST API",
+      "Typed classification",
+      "Policy decisions",
+      "Decision audit records"
+    ],
+    "websiteURL": "https://github.com/psyb0t/vibecheck",
+    "defaultPrompt": "Use Vibecheck to evaluate the requested state against the intended policy, then report the typed answers, policy outcome, matched rule, and evaluation ID."
+  },
   "keywords": ["go", "classification", "decision-service", "policy-engine", "jev", "servicepack"],
   "skills": "./skills/"
 }

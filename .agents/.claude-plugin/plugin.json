@@ -1,6 +1,6 @@
 {
   "name": "vibecheck",
-  "description": "Develop and verify the Vibecheck typed classification, scoring, and policy decision service.",
+  "description": "Use Vibecheck for typed classification, scoring, and policy decisions over REST or MCP.",
   "author": { "name": "psyb0t", "url": "https://github.com/psyb0t" },
   "homepage": "https://github.com/psyb0t/vibecheck",
   "license": "MIT",

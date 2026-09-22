@@ -28,22 +28,20 @@ spec:
 
   input:
     requiredFacts:
-      action.kind: string
-      action.destructive: boolean
       target.ownedBySession: boolean
       authorization.explicit: boolean
     optionalFacts:
       target.path: string
 
   preRules:
-    - id: block-unowned-destructive-target
-      description: A model cannot override the ownership floor.
+    - id: block-unowned-unauthorized-target
+      description: An unowned target needs explicit authorization.
       when:
         all:
-          - left: {fact: action.destructive}
-            op: eq
-            right: true
           - left: {fact: target.ownedBySession}
+            op: eq
+            right: false
+          - left: {fact: authorization.explicit}
             op: eq
             right: false
       outcome: block

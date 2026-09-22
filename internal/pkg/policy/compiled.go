@@ -25,17 +25,20 @@ func (r Ref) String() string {
 type CompiledQuestion struct {
 	ID           string
 	Type         decision.QuestionType
-	Instructions string
+	Instructions any
+
+	// NoulCriteria optionally describes the true and false outcomes. Noul only.
+	NoulCriteria map[string]any
 
 	// ChoiceCriteria maps option key to its rubric description, and
 	// ChoiceKeys is those keys in sorted order so the provider request and
 	// the canonical hash are both deterministic. Choice only.
-	ChoiceCriteria map[string]string
+	ChoiceCriteria map[string]any
 	ChoiceKeys     []string
 
 	// ScoreCriteria is the ordered low-to-high level descriptions. Its index
 	// is the level number. Score only.
-	ScoreCriteria []string
+	ScoreCriteria []any
 }
 
 // CompiledRule is one type-checked rule. A nil Condition means the rule is

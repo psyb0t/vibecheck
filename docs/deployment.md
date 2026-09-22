@@ -1,22 +1,28 @@
 # Deployment
 
-One container, one policy directory, one TypeSafe key. That is the whole
-supported path for a self-hosted deployment.
+One container, one policy directory, one TypeSafe key. That is the supported path for a self-hosted deployment. Vibecheck ships as `psyb0t/vibecheck` on Docker Hub.
 
 ## Quick start
 
 ```bash
-cp .env.example .env
-# set VIBECHECK_TYPESAFE_API_KEY and VIBECHECK_POLICY_HOST_DIR
-docker compose up -d
-docker compose ps
-curl -sS http://127.0.0.1:8080/ready
+mkdir -p policies
+curl -fsSL https://raw.githubusercontent.com/psyb0t/vibecheck/main/examples/agent-action-firewall/policy.yaml \
+  -o policies/agent-action-firewall.yaml
+
+docker run -d --name vibecheck \
+  --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -e VIBECHECK_HTTP_LISTEN_ADDRESS=0.0.0.0:8080 \
+  -e VIBECHECK_METRICS_LISTEN_ADDRESS=0.0.0.0:9091 \
+  -e VIBECHECK_TYPESAFE_API_KEY=your-typesafe-api-key-here \
+  -v "$PWD/policies:/config/policies:ro" \
+  -v vibecheck-data:/data \
+  psyb0t/vibecheck:latest run
+
+curl -fsS http://127.0.0.1:8080/ready
 ```
 
-`VIBECHECK_POLICY_HOST_DIR` is the host directory holding your policy YAML.
-Compose mounts it read-only at `/config/policies`. Copy
-`examples/agent-action-firewall/policy.yaml` into it to start from the worked
-example.
+The policy directory is mounted read-only at `/config/policies`. Replace the worked example with policies for your own decisions.
 
 Evaluate through REST as shown in [the API doc](api.md), or point an MCP
 client at `/mcp` as shown in [the MCP doc](mcp.md).
@@ -36,12 +42,9 @@ exists.
 The entrypoint is exec form, so `SIGTERM` reaches the binary and the graceful
 drain runs instead of `docker stop` waiting out its timeout.
 
-## Compose floor
+## Hardened Compose template
 
-`docker-compose.yml` is the hardened baseline: `cap_drop: [ALL]`,
-`no-new-privileges`, read-only root with a size-capped `noexec,nosuid` tmpfs,
-`init: true`, 512 MiB / 1 CPU / 256 PIDs, bounded json-file logs, an explicit
-restart policy, and loopback-only published ports.
+The repository's `docker-compose.yml` is a hardened template for operators who want Compose. It uses `cap_drop: [ALL]`, `no-new-privileges`, a read-only root with a size-capped `noexec,nosuid` tmpfs, `init: true`, 512 MiB, 1 CPU, 256 PIDs, bounded json-file logs, an explicit restart policy, and loopback-only published ports. Change its image stanza from the local build to a pinned `psyb0t/vibecheck:vX.Y.Z` image when using it outside a source checkout.
 
 `make audit-compose` checks the file against that floor and fails on banned
 settings, unintended public ports, missing limits, or missing log bounds. Run
@@ -106,7 +109,7 @@ provider nobody is waiting on, and the retention loop stops with the process.
 
 ## Upgrading
 
-Tagged releases publish immutable images such as `psyb0t/vibecheck:v0.2.1`.
+Tagged releases publish immutable images such as `psyb0t/vibecheck:v0.3.0`.
 Pin one. `latest` is for trying it out, not for a deployment you intend to
 keep.
 

@@ -16,6 +16,9 @@ import (
 
 const exampleDir = "../../../examples/agent-action-firewall"
 
+const supportTicketExample = "../../../examples/support-ticket-router/" +
+	"policy.yaml"
+
 // acceptanceFile is the shipped vector set. It is deliberately data, not Go,
 // so the same file documents the policy's behavior for a reader and drives
 // this test.
@@ -67,6 +70,83 @@ func TestShippedExamplePolicyCompiles(t *testing.T) {
 	)
 	assert.Len(t, compiled.PreRules, 1)
 	assert.Len(t, compiled.DecisionRules, 3)
+}
+
+func TestSupportTicketRouterCompiles(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(supportTicketExample)
+	require.NoError(t, err)
+
+	compiled, err := policy.CompileBytes(data, 0)
+	require.NoError(t, err)
+
+	assert.Equal(
+		t,
+		policy.Ref{Name: "support-ticket-router", Version: testPolicyVersion},
+		compiled.Ref,
+	)
+	assert.Equal(t, decision.Outcome("other"), compiled.DefaultOutcome)
+	assert.Equal(t, []string{"destination"}, compiled.QuestionIDs)
+	assert.Empty(t, compiled.RequiredFacts)
+	assert.Empty(t, compiled.PreRules)
+}
+
+func TestSupportTicketRouterMapsProviderChoices(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(supportTicketExample)
+	require.NoError(t, err)
+
+	compiled, err := policy.CompileBytes(data, 0)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name        string
+		choice      string
+		wantOutcome decision.Outcome
+		wantRule    string
+	}{
+		{
+			name:        "billing",
+			choice:      "billing",
+			wantOutcome: "billing",
+			wantRule:    "route-billing",
+		},
+		{
+			name:        "technical",
+			choice:      "technical",
+			wantOutcome: "technical",
+			wantRule:    "route-technical",
+		},
+		{name: "other", choice: "other", wantOutcome: "other"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			answers := decision.Answers{
+				"destination": {
+					Type:          decision.QuestionTypeChoice,
+					Choice:        tc.choice,
+					Confidence:    0.8,
+					HasConfidence: true,
+					Probabilities: map[string]float64{
+						"billing":   0.1,
+						"technical": 0.1,
+						"other":     0.1,
+						tc.choice:   0.8,
+					},
+				},
+			}
+
+			result := compiled.EvaluateDecisionRules(nil, answers)
+
+			assert.Equal(t, tc.wantOutcome, result.Outcome)
+			assert.Equal(t, tc.wantRule, result.MatchedRuleID)
+		})
+	}
 }
 
 func TestShippedExamplePolicyAcceptanceVectors(t *testing.T) {
@@ -279,8 +359,8 @@ func nearestLevel(question policy.CompiledQuestion, score float64) string {
 	return strconv.Itoa(index)
 }
 
-func legendFor(question policy.CompiledQuestion) map[string]string {
-	legend := make(map[string]string, len(question.ScoreCriteria))
+func legendFor(question policy.CompiledQuestion) map[string]any {
+	legend := make(map[string]any, len(question.ScoreCriteria))
 	for index, text := range question.ScoreCriteria {
 		legend[strconv.Itoa(index)] = text
 	}

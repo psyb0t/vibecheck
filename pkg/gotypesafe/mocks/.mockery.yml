@@ -1,0 +1,12 @@
+all: false
+dir: .
+filename: client.gen.go
+force-file-write: true
+formatter: goimports
+pkgname: mocks
+structname: MockClient
+template: testify
+packages:
+  github.com/psyb0t/vibecheck/pkg/gotypesafe:
+    interfaces:
+      Client:

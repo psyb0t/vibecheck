@@ -553,7 +553,7 @@ func TestValidateAnswersRejectsProtocolViolations(t *testing.T) {
 			answers: func() decision.Answers {
 				answers := validAnswers()
 				spread := answers[questionSpread]
-				spread.Legend = map[string]string{"0": "a", "1": "b"}
+				spread.Legend = map[string]any{"0": "a", "1": "b"}
 				answers[questionSpread] = spread
 
 				return answers
@@ -564,7 +564,7 @@ func TestValidateAnswersRejectsProtocolViolations(t *testing.T) {
 			answers: func() decision.Answers {
 				answers := validAnswers()
 				spread := answers[questionSpread]
-				spread.Legend = map[string]string{"0": "a", "1": "b", "9": "c"}
+				spread.Legend = map[string]any{"0": "a", "1": "b", "9": "c"}
 				answers[questionSpread] = spread
 
 				return answers

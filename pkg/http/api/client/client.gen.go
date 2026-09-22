@@ -101,13 +101,15 @@ func (e QuestionType) Valid() bool {
 
 // Answer One typed answer. Which fields are present depends on `type`: a noul carries only `noul`, a choice carries `choice`, `confidence`, and `probabilities`, and a score carries `score`, `confidence`, `probabilities`, and `legend`.
 type Answer struct {
-	Choice        *string             `json:"choice,omitempty"`
-	Confidence    *float64            `json:"confidence,omitempty"`
-	Legend        *map[string]string  `json:"legend,omitempty"`
-	Noul          *float64            `json:"noul,omitempty"`
-	Probabilities *map[string]float64 `json:"probabilities,omitempty"`
-	Score         *float64            `json:"score,omitempty"`
-	Type          QuestionType        `json:"type"`
+	Choice     *string  `json:"choice,omitempty"`
+	Confidence *float64 `json:"confidence,omitempty"`
+
+	// Legend The declared score criteria keyed by numeric level.
+	Legend        *map[string]interface{} `json:"legend,omitempty"`
+	Noul          *float64                `json:"noul,omitempty"`
+	Probabilities *map[string]float64     `json:"probabilities,omitempty"`
+	Score         *float64                `json:"score,omitempty"`
+	Type          QuestionType            `json:"type"`
 }
 
 // CreateEvaluationRequest defines model for CreateEvaluationRequest.
@@ -216,11 +218,14 @@ type PolicyList struct {
 
 // PolicyQuestion defines model for PolicyQuestion.
 type PolicyQuestion struct {
-	ChoiceCriteria *map[string]string `json:"choiceCriteria,omitempty"`
-	Id             string             `json:"id"`
-	Instructions   string             `json:"instructions"`
-	ScoreCriteria  *[]string          `json:"scoreCriteria,omitempty"`
-	Type           QuestionType       `json:"type"`
+	ChoiceCriteria *map[string]interface{} `json:"choiceCriteria,omitempty"`
+	Id             string                  `json:"id"`
+
+	// Instructions Optional string or structured TypeSafe instructions.
+	Instructions  interface{}             `json:"instructions"`
+	NoulCriteria  *map[string]interface{} `json:"noulCriteria,omitempty"`
+	ScoreCriteria *[]interface{}          `json:"scoreCriteria,omitempty"`
+	Type          QuestionType            `json:"type"`
 }
 
 // PolicyRef defines model for PolicyRef.

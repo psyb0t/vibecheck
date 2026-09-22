@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -369,18 +371,34 @@ func (c *compiler) compileQuestion(
 // compileQuestionInstructions normalizes and bounds a question's
 // instructions text, which every question type requires regardless of its
 // criteria shape.
-func compileQuestionInstructions(id, raw string) (string, error) {
-	instructions := strings.TrimSpace(raw)
-	if instructions == "" {
-		return "", ctxerrors.Wrapf(
-			ErrInvalidQuestion, "question %q has empty instructions", id,
+func compileQuestionInstructions(id string, raw any) (any, error) {
+	if raw == nil {
+		return nil, nil //nolint:nilnil // instructions are optional
+	}
+
+	instructions, err := normalizeQuestionValue(raw, false)
+	if err != nil {
+		return nil, ctxerrors.Wrapf(
+			ErrInvalidQuestion,
+			"question %q has invalid instructions: %v",
+			id,
+			err,
 		)
 	}
 
-	if len(instructions) > MaxInstructionsLength {
-		return "", ctxerrors.Wrapf(
+	encoded, err := json.Marshal(instructions)
+	if err != nil {
+		return nil, ctxerrors.Wrapf(
 			ErrInvalidQuestion,
-			"question %q instructions exceed %d characters",
+			"question %q instructions cannot be encoded",
+			id,
+		)
+	}
+
+	if len(encoded) > MaxInstructionsLength {
+		return nil, ctxerrors.Wrapf(
+			ErrInvalidQuestion,
+			"question %q instructions exceed %d encoded bytes",
 			id, MaxInstructionsLength,
 		)
 	}
@@ -398,12 +416,12 @@ func compileQuestionCriteria(
 ) (CompiledQuestion, error) {
 	switch question.Type {
 	case decision.QuestionTypeNoul:
-		if question.Criteria != nil {
-			return CompiledQuestion{}, ctxerrors.Wrapf(
-				ErrInvalidQuestion,
-				"noul question %q must not declare criteria", id,
-			)
+		criteria, err := compileNoulCriteria(id, question.Criteria)
+		if err != nil {
+			return CompiledQuestion{}, err
 		}
+
+		compiled.NoulCriteria = criteria
 
 		return compiled, nil
 
@@ -438,7 +456,7 @@ func compileQuestionCriteria(
 func compileChoiceCriteria(
 	id string,
 	raw any,
-) (map[string]string, []string, error) {
+) (map[string]any, []string, error) {
 	source, ok := raw.(map[string]any)
 	if !ok {
 		return nil, nil, ctxerrors.Wrapf(
@@ -456,7 +474,7 @@ func compileChoiceCriteria(
 		)
 	}
 
-	criteria := make(map[string]string, len(source))
+	criteria := make(map[string]any, len(source))
 	keys := make([]string, 0, len(source))
 
 	for key := range source {
@@ -470,7 +488,7 @@ func compileChoiceCriteria(
 			return nil, nil, err
 		}
 
-		description, err := criteriaText(id, key, source[key])
+		description, err := compileCriteriaValue(id, key, source[key], true)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -495,35 +513,7 @@ func validateChoiceOptionKey(id, key string) error {
 	return nil
 }
 
-// criteriaText normalizes one choice description. TypeSafe allows a null
-// description for an option that needs no extra detail, so nil maps to the
-// empty string rather than failing.
-func criteriaText(id, key string, raw any) (string, error) {
-	if raw == nil {
-		return "", nil
-	}
-
-	text, ok := raw.(string)
-	if !ok {
-		return "", ctxerrors.Wrapf(
-			ErrInvalidQuestion,
-			"choice question %q option %q description must be a string or null",
-			id, key,
-		)
-	}
-
-	if len(text) > MaxCriteriaTextLength {
-		return "", ctxerrors.Wrapf(
-			ErrInvalidQuestion,
-			"choice question %q option %q description exceeds %d characters",
-			id, key, MaxCriteriaTextLength,
-		)
-	}
-
-	return text, nil
-}
-
-func compileScoreCriteria(id string, raw any) ([]string, error) {
+func compileScoreCriteria(id string, raw any) ([]any, error) {
 	source, ok := raw.([]any)
 	if !ok {
 		return nil, ctxerrors.Wrapf(
@@ -541,34 +531,20 @@ func compileScoreCriteria(id string, raw any) ([]string, error) {
 		)
 	}
 
-	levels := make([]string, 0, len(source))
+	levels := make([]any, 0, len(source))
 
 	for index, entry := range source {
-		text, ok := entry.(string)
-		if !ok {
-			return nil, ctxerrors.Wrapf(
-				ErrInvalidQuestion,
-				"score question %q level %d must be a string", id, index,
-			)
+		level, err := compileCriteriaValue(
+			id,
+			fmt.Sprintf("level %d", index),
+			entry,
+			false,
+		)
+		if err != nil {
+			return nil, err
 		}
 
-		text = strings.TrimSpace(text)
-		if text == "" {
-			return nil, ctxerrors.Wrapf(
-				ErrInvalidQuestion,
-				"score question %q level %d is empty", id, index,
-			)
-		}
-
-		if len(text) > MaxCriteriaTextLength {
-			return nil, ctxerrors.Wrapf(
-				ErrInvalidQuestion,
-				"score question %q level %d exceeds %d characters",
-				id, index, MaxCriteriaTextLength,
-			)
-		}
-
-		levels = append(levels, text)
+		levels = append(levels, level)
 	}
 
 	return levels, nil

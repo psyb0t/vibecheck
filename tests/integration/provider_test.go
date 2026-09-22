@@ -212,17 +212,44 @@ func TestTheProviderReceivesACompleteAuthenticatedRequest(t *testing.T) {
 	assert.Equal(t, "score", call.Body.Questions[questionBlastRadius].Type)
 	assert.Equal(t, "choice", call.Body.Questions[questionActionClass].Type)
 
-	assert.NotNil(
-		t, call.Body.Questions[questionBlastRadius].Criteria,
-		"a score question carries its ordered criteria",
+	assert.Equal(
+		t,
+		[]any{
+			"Confined to one disposable item",
+			"Confined to the current project",
+			"Could affect unrelated user work",
+			"Could affect the host or external systems",
+		},
+		call.Body.Questions[questionBlastRadius].Criteria,
 	)
-	assert.NotNil(
-		t, call.Body.Questions[questionActionClass].Criteria,
-		"a choice question carries its labelled criteria",
+	assert.Equal(
+		t,
+		map[string]any{
+			"read":                 "Reads state without changing it",
+			"reversible_write":     "Changes state with an ordinary recovery path",
+			"destructive_write":    "Deletes or irreversibly replaces state",
+			"external_side_effect": "Changes an external system or contacts a person",
+			"unknown":              "None of the other classes clearly applies",
+		},
+		call.Body.Questions[questionActionClass].Criteria,
 	)
 
 	assert.Equal(
 		t, "wire fixture", call.Body.State,
 		"the caller's state reaches the provider unchanged",
 	)
+}
+
+func TestMissingTypeSafeKeyKeepsLivenessButFailsReadiness(t *testing.T) {
+	app, provider := startApp(t, testinfra.AppConfig{
+		Env: map[string]string{"VIBECHECK_TYPESAFE_API_KEY": ""},
+	})
+	api := newClient(app)
+
+	live := api.do(t, http.MethodGet, "/healthz", nil, nil)
+	ready := api.do(t, http.MethodGet, "/ready", nil, nil)
+
+	assert.Equal(t, http.StatusOK, live.Status)
+	assert.Equal(t, http.StatusServiceUnavailable, ready.Status)
+	assert.Zero(t, provider.CallCount())
 }

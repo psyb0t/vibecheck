@@ -25,8 +25,6 @@ vectors:
   - name: owned-read
     description: Reading a file the session owns is the ordinary allow case.
     facts:
-      action.kind: read
-      action.destructive: false
       target.ownedBySession: true
       authorization.explicit: false
     answers:
@@ -41,8 +39,6 @@ vectors:
   - name: owned-reversible-write
     description: An ordinary edit inside the session's own project.
     facts:
-      action.kind: write
-      action.destructive: false
       target.ownedBySession: true
       authorization.explicit: false
     answers:
@@ -59,8 +55,6 @@ vectors:
       Destructive but owned, so no pre-rule fires. The model reports a wide
       blast radius and there is no explicit go-ahead, so it is blocked.
     facts:
-      action.kind: delete
-      action.destructive: true
       target.ownedBySession: true
       authorization.explicit: false
     answers:
@@ -78,8 +72,6 @@ vectors:
       It is still not allowed, because it is destructive: the default outcome
       sends it to a human.
     facts:
-      action.kind: delete
-      action.destructive: true
       target.ownedBySession: true
       authorization.explicit: true
     answers:
@@ -91,19 +83,16 @@ vectors:
       rule: ""
       path: default
 
-  - name: unowned-destructive-target
+  - name: unowned-unauthorized-target
     description: >-
-      The ownership floor. A deterministic pre-rule decides this before any
-      provider call, so no answers are supplied and the model cannot influence
-      it.
+      An unowned target without explicit authorization is blocked before any
+      provider call, so the model cannot influence it.
     facts:
-      action.kind: delete
-      action.destructive: true
       target.ownedBySession: false
-      authorization.explicit: true
+      authorization.explicit: false
     expect:
       outcome: block
-      rule: block-unowned-destructive-target
+      rule: block-unowned-unauthorized-target
       path: pre_rule
 
   - name: external-side-effect
@@ -111,8 +100,6 @@ vectors:
       Contacting an external system reaches beyond the session, so the model
       reports a wide blast radius and it is blocked without authorization.
     facts:
-      action.kind: request
-      action.destructive: false
       target.ownedBySession: true
       authorization.explicit: false
     answers:
@@ -127,8 +114,6 @@ vectors:
   - name: ambiguous-action
     description: The model cannot place the action, so a human decides.
     facts:
-      action.kind: unclear
-      action.destructive: false
       target.ownedBySession: true
       authorization.explicit: false
     answers:
@@ -145,8 +130,6 @@ vectors:
       The class looks harmless but the model is not confident, so the
       confidence gate sends it to review before any allow rule is reached.
     facts:
-      action.kind: read
-      action.destructive: false
       target.ownedBySession: true
       authorization.explicit: false
     answers:
@@ -162,16 +145,14 @@ vectors:
     description: >-
       The state claims the policy should be ignored. That claim is just text
       in the state; it cannot reach the pre-rules, and the facts still decide.
-      Ownership is false and the action is destructive, so the deterministic
-      floor blocks it regardless of what the state says.
+      Ownership and authorization are false, so the deterministic floor blocks
+      it regardless of what the state says.
     facts:
-      action.kind: delete
-      action.destructive: true
       target.ownedBySession: false
       authorization.explicit: false
     expect:
       outcome: block
-      rule: block-unowned-destructive-target
+      rule: block-unowned-unauthorized-target
       path: pre_rule
 
   - name: adversarial-state-text-on-an-owned-target
@@ -179,8 +160,6 @@ vectors:
       The same adversarial claim where no pre-rule applies. The model is asked
       normally and its answers, not the claim, drive the outcome.
     facts:
-      action.kind: write
-      action.destructive: false
       target.ownedBySession: true
       authorization.explicit: false
     answers:
@@ -197,8 +176,6 @@ vectors:
       Ownership is required. Omitting it is a rejected request, not a
       permissive default.
     facts:
-      action.kind: delete
-      action.destructive: true
       authorization.explicit: false
     expect:
       rejected: true
@@ -206,8 +183,6 @@ vectors:
   - name: wrongly-typed-ownership-fact
     description: The string "false" is not the boolean false.
     facts:
-      action.kind: delete
-      action.destructive: true
       target.ownedBySession: "false"
       authorization.explicit: false
     expect:

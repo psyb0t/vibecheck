@@ -13,7 +13,7 @@ info:
     Vibecheck is advisory. It never executes the action it judges. Enforcing
     the returned outcome is the caller's job, and a caller acting on a
     destructive decision should fail closed when Vibecheck is unavailable.
-  version: &specVersion 0.2.1
+  version: &specVersion 0.3.0
   license:
     name: MIT
     identifier: MIT
@@ -325,7 +325,8 @@ components:
           additionalProperties: { type: number, format: double }
         legend:
           type: object
-          additionalProperties: { type: string }
+          description: The declared score criteria keyed by numeric level.
+          additionalProperties: true
 
     Usage:
       type: object
@@ -455,13 +456,17 @@ components:
       properties:
         id: { type: string }
         type: { $ref: '#/components/schemas/QuestionType' }
-        instructions: { type: string }
+        instructions:
+          description: Optional string or structured TypeSafe instructions.
+        noulCriteria:
+          type: object
+          additionalProperties: true
         choiceCriteria:
           type: object
-          additionalProperties: { type: string }
+          additionalProperties: true
         scoreCriteria:
           type: array
-          items: { type: string }
+          items: {}
 
     PolicyList:
       type: object

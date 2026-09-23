@@ -47,13 +47,16 @@ constraint sits outside the model's reach by construction.
 
 ## The decision rules
 
-Three rules, in order, first match wins:
+Four rules, in order, first match wins:
 
 1. `review-ambiguous-action`. The class came back `unknown`, or confidence
    is under 0.65. An unclear classification goes to a human.
 2. `block-high-risk-without-authorization`. Blast radius at 2.5 or above
    with no explicit authorization.
-3. `allow-owned-low-risk-action`. Owned target, destructive score under
+3. `review-meaningful-destructive-probability`. A material probability for
+   `destructive_write` reaches review even when the selected class is not
+   destructive.
+4. `allow-owned-low-risk-action`. Owned target, destructive probability under
    0.35, blast radius under 1.5.
 
 No match means the declared default, which is `review`. The safe answer is
@@ -61,7 +64,7 @@ the fallback, not the exception.
 
 ## Acceptance vectors
 
-`acceptance.yaml` holds 12 labelled vectors with their expected outcome,
+`acceptance.yaml` holds 13 labelled vectors with their expected outcome,
 matching rule, and execution path. The test suite compiles the policy and
 runs every vector, so the shipped example is verified rather than
 illustrative.
@@ -72,7 +75,7 @@ the default outcome. How often the provider returns a given answer for a
 given state is a separate, opt-in exercise against the live API. A
 probabilistic output cannot be a CI assertion.
 
-Among the 12 are a missing required fact, a fact of the wrong type, and
+Among them are a missing required fact, a fact of the wrong type, and
 adversarial `state` text that instructs the model to approve a destructive
 action on an unowned target. The pre-rule blocks that one and the provider
 never sees the instruction.

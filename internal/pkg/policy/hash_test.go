@@ -77,6 +77,20 @@ func TestHashChangesWithBehavior(t *testing.T) {
 			}),
 		},
 		{
+			"a different probability selector",
+			mutate(func(d *policy.Document) {
+				d.Spec.DecisionRules[0].When = &policy.Condition{
+					Left: &policy.Operand{
+						Answer:         questionClass,
+						Field:          decision.AnswerFieldProbability,
+						ProbabilityKey: choiceWrite,
+					},
+					Op:    policy.OperatorGte,
+					Right: 0.2,
+				}
+			}),
+		},
+		{
 			"a reordered rule list",
 			mutate(func(d *policy.Document) {
 				rules := d.Spec.DecisionRules
@@ -115,6 +129,38 @@ func TestHashChangesWithBehavior(t *testing.T) {
 			assert.NotEqual(t, baseline.Hash, changed.Hash)
 		})
 	}
+}
+
+func TestHashChangesWithProbabilitySelector(t *testing.T) {
+	t.Parallel()
+
+	compileWithSelector := func(
+		t *testing.T,
+		probabilityKey string,
+	) *policy.Compiled {
+		t.Helper()
+
+		doc := mutate(func(d *policy.Document) {
+			d.Spec.DecisionRules[0].When = &policy.Condition{
+				Left: &policy.Operand{
+					Answer:         questionClass,
+					Field:          decision.AnswerFieldProbability,
+					ProbabilityKey: probabilityKey,
+				},
+				Op:    policy.OperatorGte,
+				Right: 0.2,
+			}
+		})
+
+		compiled, err := policy.Compile(doc)
+		require.NoError(t, err)
+
+		return compiled
+	}
+
+	read := compileWithSelector(t, choiceRead)
+	write := compileWithSelector(t, choiceWrite)
+	assert.NotEqual(t, read.Hash, write.Hash)
 }
 
 func TestQuestionOrderDoesNotChangeTheHash(t *testing.T) {

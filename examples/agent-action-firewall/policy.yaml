@@ -93,6 +93,14 @@ spec:
             right: false
       outcome: block
 
+    - id: review-meaningful-destructive-probability
+      description: A meaningful chance of destructive work still needs review.
+      when:
+        left: {answer: actionClass, field: probability, probabilityKey: destructive_write}
+        op: gte
+        right: 0.2
+      outcome: review
+
     - id: allow-owned-low-risk-action
       description: Owned, non-destructive, and narrow enough to proceed.
       when:

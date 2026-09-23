@@ -78,6 +78,17 @@ func TestCompileRejectsMalformedConditions(t *testing.T) {
 			},
 		},
 		{
+			"fact operand carrying a probability selector",
+			&policy.Condition{
+				Left: &policy.Operand{
+					Fact:           factOwned,
+					ProbabilityKey: choiceRead,
+				},
+				Op:    policy.OperatorEq,
+				Right: true,
+			},
+		},
+		{
 			"missing right operand",
 			&policy.Condition{
 				Left: &policy.Operand{Fact: factOwned},
@@ -238,6 +249,126 @@ func TestCompileRejectsUnknownReferences(t *testing.T) {
 		}))
 		require.ErrorIs(t, err, policy.ErrUnknownReference)
 	})
+
+	t.Run("undeclared probability option", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := policy.Compile(withDecisionCondition(&policy.Condition{
+			Left: &policy.Operand{
+				Answer:         questionClass,
+				Field:          decision.AnswerFieldProbability,
+				ProbabilityKey: "nope",
+			},
+			Op:    policy.OperatorGte,
+			Right: 0.2,
+		}))
+		require.ErrorIs(t, err, policy.ErrUnknownReference)
+	})
+}
+
+func TestCompileAcceptsProbabilitySelectors(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		questionID     string
+		probabilityKey string
+		right          float64
+	}{
+		{
+			name:           "choice option at the zero threshold",
+			questionID:     questionClass,
+			probabilityKey: choiceWrite,
+			right:          0,
+		},
+		{
+			name:           "score level at the one threshold",
+			questionID:     questionSpread,
+			probabilityKey: "1",
+			right:          1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := policy.Compile(withDecisionCondition(&policy.Condition{
+				Left: &policy.Operand{
+					Answer:         tc.questionID,
+					Field:          decision.AnswerFieldProbability,
+					ProbabilityKey: tc.probabilityKey,
+				},
+				Op:    policy.OperatorGte,
+				Right: tc.right,
+			}))
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCompileRejectsInvalidProbabilitySelectors(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		questionID     string
+		field          decision.AnswerField
+		probabilityKey string
+		wantErr        error
+	}{
+		{
+			name:       "missing selector",
+			questionID: questionClass,
+			field:      decision.AnswerFieldProbability,
+			wantErr:    policy.ErrInvalidCondition,
+		},
+		{
+			name:           "selector on the choice field",
+			questionID:     questionClass,
+			field:          decision.AnswerFieldChoice,
+			probabilityKey: choiceRead,
+			wantErr:        policy.ErrInvalidCondition,
+		},
+		{
+			name:           "noncanonical score level selector",
+			questionID:     questionSpread,
+			field:          decision.AnswerFieldProbability,
+			probabilityKey: "01",
+			wantErr:        policy.ErrInvalidCondition,
+		},
+		{
+			name:           "undeclared score level selector",
+			questionID:     questionSpread,
+			field:          decision.AnswerFieldProbability,
+			probabilityKey: "9",
+			wantErr:        policy.ErrUnknownReference,
+		},
+		{
+			name:           "probability on noul",
+			questionID:     questionRisky,
+			field:          decision.AnswerFieldProbability,
+			probabilityKey: "true",
+			wantErr:        policy.ErrTypeMismatch,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := policy.Compile(withDecisionCondition(&policy.Condition{
+				Left: &policy.Operand{
+					Answer:         tc.questionID,
+					Field:          tc.field,
+					ProbabilityKey: tc.probabilityKey,
+				},
+				Op:    policy.OperatorGte,
+				Right: 0.2,
+			}))
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
 }
 
 func TestCompileRejectsTypeMismatches(t *testing.T) {
@@ -392,21 +523,38 @@ func TestCompileRejectsOutOfRangeProbabilityThresholds(t *testing.T) {
 		name  string
 		field decision.AnswerField
 		id    string
+		key   string
 		right any
 	}{
-		{"noul above one", decision.AnswerFieldNoul, questionRisky, 1.5},
-		{"noul below zero", decision.AnswerFieldNoul, questionRisky, -0.1},
+		{"noul above one", decision.AnswerFieldNoul, questionRisky, "", 1.5},
+		{"noul below zero", decision.AnswerFieldNoul, questionRisky, "", -0.1},
 		{
 			"confidence above one",
 			decision.AnswerFieldConfidence,
 			questionClass,
+			"",
 			2.0,
 		},
 		{
 			"confidence below zero",
 			decision.AnswerFieldConfidence,
 			questionClass,
+			"",
 			-1.0,
+		},
+		{
+			"choice probability above one",
+			decision.AnswerFieldProbability,
+			questionClass,
+			choiceWrite,
+			1.1,
+		},
+		{
+			"score probability below zero",
+			decision.AnswerFieldProbability,
+			questionSpread,
+			"1",
+			-0.1,
 		},
 	}
 
@@ -415,7 +563,11 @@ func TestCompileRejectsOutOfRangeProbabilityThresholds(t *testing.T) {
 			t.Parallel()
 
 			_, err := policy.Compile(withDecisionCondition(&policy.Condition{
-				Left:  &policy.Operand{Answer: tc.id, Field: tc.field},
+				Left: &policy.Operand{
+					Answer:         tc.id,
+					Field:          tc.field,
+					ProbabilityKey: tc.key,
+				},
 				Op:    policy.OperatorLt,
 				Right: tc.right,
 			}))
@@ -687,6 +839,34 @@ func TestConditionEvaluationOverAnswers(t *testing.T) {
 			want:    true,
 		},
 		{
+			name: "choice option probability can match without being selected",
+			condition: &policy.Condition{
+				Left: &policy.Operand{
+					Answer:         questionClass,
+					Field:          decision.AnswerFieldProbability,
+					ProbabilityKey: choiceWrite,
+				},
+				Op:    policy.OperatorGte,
+				Right: 0.15,
+			},
+			answers: validAnswers(),
+			want:    true,
+		},
+		{
+			name: "score level probability can match",
+			condition: &policy.Condition{
+				Left: &policy.Operand{
+					Answer:         questionSpread,
+					Field:          decision.AnswerFieldProbability,
+					ProbabilityKey: "1",
+				},
+				Op:    policy.OperatorGte,
+				Right: 0.5,
+			},
+			answers: validAnswers(),
+			want:    true,
+		},
+		{
 			name: "score at the threshold with gte",
 			condition: &policy.Condition{
 				Left: &policy.Operand{
@@ -739,6 +919,28 @@ func TestConditionEvaluationOverAnswers(t *testing.T) {
 				questionClass: {
 					Type:   decision.QuestionTypeChoice,
 					Choice: choiceRead,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "missing probability makes the leaf false",
+			condition: &policy.Condition{
+				Left: &policy.Operand{
+					Answer:         questionClass,
+					Field:          decision.AnswerFieldProbability,
+					ProbabilityKey: choiceWrite,
+				},
+				Op:    policy.OperatorGte,
+				Right: 0.15,
+			},
+			answers: decision.Answers{
+				questionClass: {
+					Type:          decision.QuestionTypeChoice,
+					Choice:        choiceRead,
+					Confidence:    0.9,
+					HasConfidence: true,
+					Probabilities: map[string]float64{choiceRead: 1},
 				},
 			},
 			want: false,

@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"strconv"
+
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/vibecheck/internal/pkg/common/decision"
 )
@@ -226,10 +228,11 @@ func (c *compiler) resolveFactOperand(
 	operand Operand,
 	ruleID string,
 ) (CompiledOperand, error) {
-	if operand.Field != "" {
+	if operand.Field != "" || operand.ProbabilityKey != "" {
 		return CompiledOperand{}, ctxerrors.Wrapf(
 			ErrInvalidCondition,
-			"rule %q: a fact operand must not declare a field", ruleID,
+			"rule %q: a fact cannot declare an answer field or probability key",
+			ruleID,
 		)
 	}
 
@@ -286,12 +289,127 @@ func (c *compiler) resolveAnswerOperand(
 		)
 	}
 
+	probabilityKey, err := validateProbabilityKey(question, operand, ruleID)
+	if err != nil {
+		return CompiledOperand{}, err
+	}
+
 	return CompiledOperand{
-		kind:         operandKindAnswer,
-		questionID:   operand.Answer,
-		field:        operand.Field,
-		questionType: question.Type,
+		kind:           operandKindAnswer,
+		questionID:     operand.Answer,
+		field:          operand.Field,
+		questionType:   question.Type,
+		probabilityKey: probabilityKey,
 	}, nil
+}
+
+func validateProbabilityKey(
+	question CompiledQuestion,
+	operand Operand,
+	ruleID string,
+) (string, error) {
+	if operand.Field != decision.AnswerFieldProbability {
+		return validateNoProbabilityKey(operand, ruleID)
+	}
+
+	if operand.ProbabilityKey == "" {
+		return "", ctxerrors.Wrapf(
+			ErrInvalidCondition,
+			"rule %q: probability needs a probabilityKey", ruleID,
+		)
+	}
+
+	if len(operand.ProbabilityKey) > decision.MaxIdentifierLength {
+		return "", ctxerrors.Wrapf(
+			ErrInvalidCondition,
+			"rule %q: probabilityKey exceeds %d characters",
+			ruleID, decision.MaxIdentifierLength,
+		)
+	}
+
+	switch question.Type {
+	case decision.QuestionTypeChoice:
+		return validateChoiceProbabilityKey(question, operand, ruleID)
+
+	case decision.QuestionTypeScore:
+		return validateScoreProbabilityKey(question, operand, ruleID)
+
+	case decision.QuestionTypeNoul:
+		return "", ctxerrors.Wrapf(
+			ErrTypeMismatch,
+			"rule %q: probability does not exist on a noul answer", ruleID,
+		)
+	}
+
+	return "", ctxerrors.Wrapf(
+		ErrInvalidCondition,
+		"rule %q: question %q has an unsupported type", ruleID, question.ID,
+	)
+}
+
+func validateNoProbabilityKey(operand Operand, ruleID string) (string, error) {
+	if operand.ProbabilityKey == "" {
+		return "", nil
+	}
+
+	return "", ctxerrors.Wrapf(
+		ErrInvalidCondition,
+		"rule %q: probabilityKey only applies to the probability field",
+		ruleID,
+	)
+}
+
+func validateChoiceProbabilityKey(
+	question CompiledQuestion,
+	operand Operand,
+	ruleID string,
+) (string, error) {
+	if !decision.IsIdentifier(operand.ProbabilityKey) {
+		return "", ctxerrors.Wrapf(
+			ErrInvalidCondition,
+			"rule %q: choice probabilityKey must match option key grammar",
+			ruleID,
+		)
+	}
+
+	_, declared := question.ChoiceCriteria[operand.ProbabilityKey]
+	if !declared {
+		return "", ctxerrors.Wrapf(
+			ErrUnknownReference,
+			"rule %q: question %q does not declare probability option %q",
+			ruleID, question.ID, operand.ProbabilityKey,
+		)
+	}
+
+	return operand.ProbabilityKey, nil
+}
+
+func validateScoreProbabilityKey(
+	question CompiledQuestion,
+	operand Operand,
+	ruleID string,
+) (string, error) {
+	level, err := strconv.Atoi(operand.ProbabilityKey)
+
+	isCanonicalLevel := err == nil && level >= 0 &&
+		strconv.Itoa(level) == operand.ProbabilityKey
+	if !isCanonicalLevel {
+		return "", ctxerrors.Wrapf(
+			ErrInvalidCondition,
+			"rule %q: score probabilityKey needs a canonical level index",
+			ruleID,
+		)
+	}
+
+	if level >= len(question.ScoreCriteria) {
+		return "", ctxerrors.Wrapf(
+			ErrUnknownReference,
+			"rule %q: question %q does not declare score level %q",
+			ruleID, question.ID, operand.ProbabilityKey,
+		)
+	}
+
+	return operand.ProbabilityKey, nil
 }
 
 // compileExistsRight normalizes the right operand of an exists check. Omitting
@@ -518,7 +636,8 @@ func checkNumericAnswerRange(
 	ruleID string,
 ) error {
 	if operand.field == decision.AnswerFieldConfidence ||
-		operand.field == decision.AnswerFieldNoul {
+		operand.field == decision.AnswerFieldNoul ||
+		operand.field == decision.AnswerFieldProbability {
 		if number < minProbability || number > maxProbability {
 			return ctxerrors.Wrapf(
 				ErrInvalidCondition,

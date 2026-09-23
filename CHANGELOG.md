@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] - 2026-09-22
+
+- Added `field: probability` with a named `probabilityKey`, so policy rules can route on a declared choice option or score level even when Jev selected another answer.
+- Added a firewall example and real HTTP integration coverage for reviewing a meaningful destructive-action probability.
+- Fixed the Docker image to own fixed internal listener ports. Docker port publishing now controls host exposure without listener-address environment variables.
+
 ## [0.3.0] - 2026-09-22
 
 - Corrected the TypeSafe contract so callers submit raw state and trusted facts while Jev produces the typed classifications, scores, and probabilities.

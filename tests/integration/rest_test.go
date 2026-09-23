@@ -63,6 +63,38 @@ func TestEvaluationRecordsTheProviderAnswersAndTheChosenRule(t *testing.T) {
 	assert.Contains(t, scrape, "vibecheck_db_operations_total")
 }
 
+func TestEvaluationRoutesAnUnselectedDestructiveOptionToReview(t *testing.T) {
+	app, provider := startApp(t, testinfra.AppConfig{})
+	api := newClient(app)
+
+	provider.Reset()
+	provider.SetFallback(uncertainDestructiveReply())
+
+	created := api.evaluate(
+		t, evaluateBody(allowingFacts(), "classify an owned write"), nil,
+	)
+	assert.Equal(t, "review", created["outcome"])
+	assert.Equal(t, "decision_rule", created["executionPath"])
+	assert.Equal(
+		t,
+		"review-meaningful-destructive-probability",
+		created["matchedRuleId"],
+	)
+	assert.Equal(t, 1, provider.CallCount())
+
+	id, ok := created["id"].(string)
+	require.True(t, ok, "the evaluation response includes its audit ID")
+
+	fetchedResponse := api.do(
+		t, http.MethodGet, "/v1/evaluations/"+id, nil, nil,
+	)
+	require.Equal(t, http.StatusOK, fetchedResponse.Status)
+
+	fetched := fetchedResponse.Map(t)
+	assert.Equal(t, created["outcome"], fetched["outcome"])
+	assert.Equal(t, created["matchedRuleId"], fetched["matchedRuleId"])
+}
+
 // A pre-rule is the deterministic floor. If it decides, the provider must
 // never be consulted: that is what stops a model from overriding ownership.
 func TestPreRuleDecidesWithoutCallingTheProvider(t *testing.T) {

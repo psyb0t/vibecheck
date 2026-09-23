@@ -169,8 +169,11 @@ type Condition struct {
 
 // Operand is the left side of a condition leaf. Exactly one of Fact or Answer
 // must be set. Field is required when Answer is set and forbidden otherwise.
+// ProbabilityKey selects one choice option or score level when Field is
+// probability.
 type Operand struct {
-	Fact   string               `json:"fact,omitempty"   yaml:"fact,omitempty"`
-	Answer string               `json:"answer,omitempty" yaml:"answer,omitempty"` //nolint:lll // dual json/yaml struct tag cannot be split
-	Field  decision.AnswerField `json:"field,omitempty"  yaml:"field,omitempty"`
+	Fact           string               `json:"fact,omitempty"           yaml:"fact,omitempty"`           //nolint:lll // dual JSON/YAML struct tag cannot be split
+	Answer         string               `json:"answer,omitempty"         yaml:"answer,omitempty"`         //nolint:lll // dual JSON/YAML struct tag cannot be split
+	Field          decision.AnswerField `json:"field,omitempty"          yaml:"field,omitempty"`          //nolint:lll // dual JSON/YAML struct tag cannot be split
+	ProbabilityKey string               `json:"probabilityKey,omitempty" yaml:"probabilityKey,omitempty"` //nolint:lll // dual JSON/YAML struct tag cannot be split
 }

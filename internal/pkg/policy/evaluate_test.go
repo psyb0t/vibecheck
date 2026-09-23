@@ -139,6 +139,39 @@ func TestEvaluateDecisionRules(t *testing.T) {
 	}
 }
 
+func TestEvaluateDecisionRulesRoutesOnAnUnselectedOptionProbability(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	doc := mutate(func(d *policy.Document) {
+		d.Spec.DecisionRules = []policy.Rule{{
+			ID: ruleReviewPossibleWrite,
+			When: &policy.Condition{
+				Left: &policy.Operand{
+					Answer:         questionClass,
+					Field:          decision.AnswerFieldProbability,
+					ProbabilityKey: choiceWrite,
+				},
+				Op:    policy.OperatorGte,
+				Right: 0.15,
+			},
+			Outcome: outcomeReview,
+		}}
+	})
+
+	compiled, err := policy.Compile(doc)
+	require.NoError(t, err)
+
+	answers := validAnswers()
+	require.NoError(t, compiled.ValidateAnswers(answers))
+
+	result := compiled.EvaluateDecisionRules(validFacts(), answers)
+	assert.Equal(t, outcomeReview, result.Outcome)
+	assert.Equal(t, ruleReviewPossibleWrite, result.MatchedRuleID)
+	assert.Equal(t, decision.ExecutionPathDecisionRule, result.Path)
+}
+
 func TestValidateFactsAcceptsGoodInput(t *testing.T) {
 	t.Parallel()
 

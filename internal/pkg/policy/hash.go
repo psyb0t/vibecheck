@@ -53,9 +53,10 @@ type canonicalCondition struct {
 	Kind     string               `json:"kind"`
 	Children []canonicalCondition `json:"children,omitempty"`
 
-	Fact     string `json:"fact,omitempty"`
-	Question string `json:"question,omitempty"`
-	Field    string `json:"field,omitempty"`
+	Fact           string `json:"fact,omitempty"`
+	Question       string `json:"question,omitempty"`
+	Field          string `json:"field,omitempty"`
+	ProbabilityKey string `json:"probabilityKey,omitempty"`
 
 	Op          string `json:"op,omitempty"`
 	RightScalar any    `json:"rightScalar,omitempty"`
@@ -155,6 +156,7 @@ func canonicalizeCondition(condition CompiledCondition) canonicalCondition {
 
 	form.Question = condition.operand.questionID
 	form.Field = condition.operand.field.String()
+	form.ProbabilityKey = condition.operand.probabilityKey
 
 	return form
 }

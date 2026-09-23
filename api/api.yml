@@ -13,7 +13,7 @@ info:
     Vibecheck is advisory. It never executes the action it judges. Enforcing
     the returned outcome is the caller's job, and a caller acting on a
     destructive decision should fail closed when Vibecheck is unavailable.
-  version: &specVersion 0.3.0
+  version: &specVersion 0.4.0
   license:
     name: MIT
     identifier: MIT

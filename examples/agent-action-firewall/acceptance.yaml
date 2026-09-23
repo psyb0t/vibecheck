@@ -80,8 +80,32 @@ vectors:
       actionClass: {choice: destructive_write, confidence: 0.9}
     expect:
       outcome: review
-      rule: ""
-      path: default
+      rule: review-meaningful-destructive-probability
+      path: decision_rule
+
+  - name: unselected-destructive-option
+    description: >-
+      The selected class is read, but the model assigned a meaningful chance
+      to destructive work. The distribution rule reviews it before allow.
+    facts:
+      target.ownedBySession: true
+      authorization.explicit: false
+    answers:
+      destructive: {noul: 0.05}
+      blastRadius: {score: 0.2, confidence: 0.91}
+      actionClass:
+        choice: read
+        confidence: 0.92
+        probabilities:
+          read: 0.55
+          reversible_write: 0.1
+          destructive_write: 0.25
+          external_side_effect: 0.05
+          unknown: 0.05
+    expect:
+      outcome: review
+      rule: review-meaningful-destructive-probability
+      path: decision_rule
 
   - name: unowned-unauthorized-target
     description: >-

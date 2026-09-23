@@ -34,11 +34,12 @@ type CompiledOperand struct {
 	factName string
 	factType decision.FactType
 
-	// questionID, field, and questionType are set when kind is
+	// questionID, field, questionType, and probabilityKey are set when kind is
 	// operandKindAnswer.
-	questionID   string
-	field        decision.AnswerField
-	questionType decision.QuestionType
+	questionID     string
+	field          decision.AnswerField
+	questionType   decision.QuestionType
+	probabilityKey string
 }
 
 // CompiledCondition is a type-checked condition tree ready to evaluate. It is
@@ -149,6 +150,10 @@ func (c CompiledCondition) resolveOperand(
 	answer, ok := answers[c.operand.questionID]
 	if !ok {
 		return nil, false
+	}
+
+	if c.operand.field == decision.AnswerFieldProbability {
+		return answer.Probability(c.operand.probabilityKey)
 	}
 
 	return answer.Field(c.operand.field)

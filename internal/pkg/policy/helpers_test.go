@@ -29,9 +29,10 @@ const (
 	choiceWrite   = "write"
 	choiceUnknown = "unknown"
 
-	rulePreBlockUnowned = "block-unowned-destructive"
-	ruleReviewUnknown   = "review-unknown-class"
-	ruleAllowLowRisk    = "allow-owned-low-risk"
+	rulePreBlockUnowned     = "block-unowned-destructive"
+	ruleReviewUnknown       = "review-unknown-class"
+	ruleReviewPossibleWrite = "review-possible-write"
+	ruleAllowLowRisk        = "allow-owned-low-risk"
 
 	testPolicyVersion = "1.0.0"
 	testFactPathTemp  = "/tmp/x"

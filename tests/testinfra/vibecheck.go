@@ -446,14 +446,12 @@ func appEnv(
 	postgres testcontainers.Container,
 ) (map[string]string, error) {
 	env := map[string]string{
-		"LOG_LEVEL":                        "info",
-		"LOG_FORMAT":                       "json",
-		"VIBECHECK_HTTP_LISTEN_ADDRESS":    "0.0.0.0:" + appHTTPPort,
-		"VIBECHECK_METRICS_LISTEN_ADDRESS": "0.0.0.0:" + appMetricsPort,
-		"VIBECHECK_POLICY_DIR":             appPolicyDir,
-		"VIBECHECK_TYPESAFE_API_KEY":       "test-provider-key",
-		"VIBECHECK_DB_DRIVER":              DriverSQLite,
-		"VIBECHECK_DB_SQLITE_PATH":         appSQLitePath,
+		"LOG_LEVEL":                  "info",
+		"LOG_FORMAT":                 "json",
+		"VIBECHECK_POLICY_DIR":       appPolicyDir,
+		"VIBECHECK_TYPESAFE_API_KEY": "test-provider-key",
+		"VIBECHECK_DB_DRIVER":        DriverSQLite,
+		"VIBECHECK_DB_SQLITE_PATH":   appSQLitePath,
 	}
 
 	if config.APIToken != "" {

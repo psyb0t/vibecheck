@@ -74,6 +74,11 @@ COPY --from=builder --chown=appuser:appuser /app/build/app .
 
 USER appuser
 
+# Container listeners are fixed. Docker or an orchestrator decides whether and
+# where those ports are exposed outside the container.
+ENV VIBECHECK_HTTP_LISTEN_ADDRESS=0.0.0.0:8080 \
+    VIBECHECK_METRICS_LISTEN_ADDRESS=0.0.0.0:9091
+
 VOLUME ["/data"]
 
 EXPOSE 8080 9091

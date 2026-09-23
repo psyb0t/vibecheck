@@ -87,8 +87,8 @@ refer to the answer.
 | Type | Answer fields a rule may read | Meaning |
 |---|---|---|
 | `noul` | `noul` | A truth value in `[0, 1]` |
-| `score` | `score`, `confidence` | An index into the ordered `criteria` list |
-| `choice` | `choice`, `confidence` | One key from the `criteria` map |
+| `score` | `score`, `confidence`, `probability` | An index into the ordered `criteria` list and a probability for one level |
+| `choice` | `choice`, `confidence`, `probability` | One key from the `criteria` map and a probability for one option |
 
 A `noul` answer has no `confidence` field. The value already is the model's
 graded belief, so a separate confidence on top of it would be a second,
@@ -119,8 +119,22 @@ The left operand is either `{fact: <name>}` or
 `lte`, `gt`, `gte`, `in`, and `exists`. Combine conditions with `all` or
 `any`.
 
+Use `field: probability` when a rule needs the probability of one candidate, including a candidate that the provider did not select. It needs `probabilityKey`. On a `choice` question this is a declared option key. On a `score` question it is the zero-based level index written as a canonical decimal string.
+
+```yaml
+      when:
+        left:
+          answer: actionClass
+          field: probability
+          probabilityKey: destructive_write
+        op: gte
+        right: 0.2
+```
+
+This checks the probability assigned to `destructive_write`, not whether `actionClass.choice` equals that key. `noul` does not support `field: probability` because its `noul` value already is the probability of its proposition.
+
 The compiler type-checks both sides. Comparing a boolean fact with `gte`, or
-naming a question that does not exist, is a compile error.
+naming a question, choice option, or score level that does not exist, is a compile error. Probability thresholds must be in `[0, 1]`.
 
 ## Pre-rules and decision rules
 

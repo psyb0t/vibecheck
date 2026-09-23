@@ -24,10 +24,14 @@ const (
 
 // Question IDs declared by that policy.
 const (
-	questionDestructive  = "destructive"
-	questionBlastRadius  = "blastRadius"
-	questionActionClass  = "actionClass"
-	choiceReversibleWrit = "reversible_write"
+	questionDestructive      = "destructive"
+	questionBlastRadius      = "blastRadius"
+	questionActionClass      = "actionClass"
+	choiceRead               = "read"
+	choiceReversibleWrit     = "reversible_write"
+	choiceDestructiveWrite   = "destructive_write"
+	choiceExternalSideEffect = "external_side_effect"
+	choiceUnknown            = "unknown"
 )
 
 // Header names the API contract defines.
@@ -117,6 +121,13 @@ spec:
             op: eq
             right: false
       outcome: block
+    - id: review-meaningful-destructive-probability
+      description: A meaningful chance of destructive work still needs review.
+      when:
+        left: {answer: actionClass, field: probability, probabilityKey: destructive_write}
+        op: gte
+        right: 0.2
+      outcome: review
     - id: allow-owned-low-risk-action
       description: Owned, non-destructive, and narrow enough to proceed.
       when:
@@ -146,11 +157,11 @@ func defaultReply() testinfra.FakeReply {
 	actionClass := testinfra.ChoiceAnswer(
 		choiceReversibleWrit,
 		map[string]float64{
-			choiceReversibleWrit:   0.92,
-			"read":                 0.04,
-			"destructive_write":    0.02,
-			"external_side_effect": 0.01,
-			"unknown":              0.01,
+			choiceReversibleWrit:     0.92,
+			choiceRead:               0.04,
+			choiceDestructiveWrite:   0.02,
+			choiceExternalSideEffect: 0.01,
+			choiceUnknown:            0.01,
 		},
 	)
 	actionClass.Confidence = confidencePtr(confidence)
@@ -167,6 +178,32 @@ func defaultReply() testinfra.FakeReply {
 		questionBlastRadius: blastRadius,
 		questionActionClass: actionClass,
 	})
+}
+
+// uncertainDestructiveReply selects read while assigning enough probability
+// to destructive work for the policy to require review.
+func uncertainDestructiveReply() testinfra.FakeReply {
+	const (
+		readProbability               = 0.55
+		reversibleWriteProbability    = 0.10
+		destructiveWriteProbability   = 0.25
+		externalSideEffectProbability = 0.05
+		unknownProbability            = 0.05
+	)
+
+	reply := defaultReply()
+	actionClass := reply.Response.Answers[questionActionClass]
+	actionClass.Choice = choiceRead
+	actionClass.Probabilities = map[string]float64{
+		choiceRead:               readProbability,
+		choiceReversibleWrit:     reversibleWriteProbability,
+		choiceDestructiveWrite:   destructiveWriteProbability,
+		choiceExternalSideEffect: externalSideEffectProbability,
+		choiceUnknown:            unknownProbability,
+	}
+	reply.Response.Answers[questionActionClass] = actionClass
+
+	return reply
 }
 
 // blastRadiusLegend names each score level, keyed by its index, which is the

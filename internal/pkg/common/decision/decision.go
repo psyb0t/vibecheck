@@ -91,10 +91,11 @@ func (q QuestionType) IsValid() bool {
 type AnswerField string
 
 const (
-	AnswerFieldChoice     AnswerField = "choice"
-	AnswerFieldScore      AnswerField = "score"
-	AnswerFieldNoul       AnswerField = "noul"
-	AnswerFieldConfidence AnswerField = "confidence"
+	AnswerFieldChoice      AnswerField = "choice"
+	AnswerFieldScore       AnswerField = "score"
+	AnswerFieldNoul        AnswerField = "noul"
+	AnswerFieldConfidence  AnswerField = "confidence"
+	AnswerFieldProbability AnswerField = "probability"
 )
 
 func (f AnswerField) String() string {
@@ -104,7 +105,7 @@ func (f AnswerField) String() string {
 func (f AnswerField) IsValid() bool {
 	switch f {
 	case AnswerFieldChoice, AnswerFieldScore, AnswerFieldNoul,
-		AnswerFieldConfidence:
+		AnswerFieldConfidence, AnswerFieldProbability:
 		return true
 	}
 
@@ -117,9 +118,11 @@ func (f AnswerField) IsValid() bool {
 func (f AnswerField) AvailableOn(questionType QuestionType) bool {
 	switch questionType {
 	case QuestionTypeChoice:
-		return f == AnswerFieldChoice || f == AnswerFieldConfidence
+		return f == AnswerFieldChoice || f == AnswerFieldConfidence ||
+			f == AnswerFieldProbability
 	case QuestionTypeScore:
-		return f == AnswerFieldScore || f == AnswerFieldConfidence
+		return f == AnswerFieldScore || f == AnswerFieldConfidence ||
+			f == AnswerFieldProbability
 	case QuestionTypeNoul:
 		return f == AnswerFieldNoul
 	}
@@ -239,8 +242,8 @@ type Answer struct {
 	Legend map[string]any `json:"legend,omitempty"`
 }
 
-// Field returns the value of one answer field and whether that field exists on
-// this answer.
+// Field returns the value of one scalar answer field and whether that field
+// exists on this answer. Use Probability to read a named distribution key.
 func (a Answer) Field(field AnswerField) (any, bool) {
 	if !field.AvailableOn(a.Type) {
 		return nil, false
@@ -259,9 +262,25 @@ func (a Answer) Field(field AnswerField) (any, bool) {
 		}
 
 		return a.Confidence, true
+	case AnswerFieldProbability:
+		return nil, false
 	}
 
 	return nil, false
+}
+
+// Probability returns the probability for key and whether this answer carries
+// it. Choice answers use option keys and score answers use decimal level
+// indexes. Noul answers do not have a distribution because Noul is itself the
+// probability of its proposition.
+func (a Answer) Probability(key string) (float64, bool) {
+	if !AnswerFieldProbability.AvailableOn(a.Type) {
+		return 0, false
+	}
+
+	probability, ok := a.Probabilities[key]
+
+	return probability, ok
 }
 
 // Answers maps question ID to the answer the provider returned for it.

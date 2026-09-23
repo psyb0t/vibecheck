@@ -29,9 +29,6 @@ services:
       LOG_ADD_SOURCE: ${LOG_ADD_SOURCE:-false}
       RUNNER_SHUTDOWNTIMEOUT: ${RUNNER_SHUTDOWNTIMEOUT:-10s}
 
-      VIBECHECK_HTTP_LISTEN_ADDRESS: 0.0.0.0:8080
-      # Metrics stay on the compose network. Never publish this port.
-      VIBECHECK_METRICS_LISTEN_ADDRESS: 0.0.0.0:9091
       VIBECHECK_API_TOKEN: ${VIBECHECK_API_TOKEN:-}
 
       VIBECHECK_POLICY_DIR: /config/policies

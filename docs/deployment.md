@@ -12,8 +12,6 @@ curl -fsSL https://raw.githubusercontent.com/psyb0t/vibecheck/main/examples/agen
 docker run -d --name vibecheck \
   --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
-  -e VIBECHECK_HTTP_LISTEN_ADDRESS=0.0.0.0:8080 \
-  -e VIBECHECK_METRICS_LISTEN_ADDRESS=0.0.0.0:9091 \
   -e VIBECHECK_TYPESAFE_API_KEY=your-typesafe-api-key-here \
   -v "$PWD/policies:/config/policies:ro" \
   -v vibecheck-data:/data \
@@ -22,7 +20,7 @@ docker run -d --name vibecheck \
 curl -fsS http://127.0.0.1:8080/ready
 ```
 
-The policy directory is mounted read-only at `/config/policies`. Replace the worked example with policies for your own decisions.
+The policy directory is mounted read-only at `/config/policies`. The image listens on fixed container ports: public traffic on 8080 and metrics on 9091. `-p 127.0.0.1:8080:8080` binds only public traffic to the host. Change the host port on the left, not the container port on the right. Replace the worked example with policies for your own decisions.
 
 Evaluate through REST as shown in [the API doc](api.md), or point an MCP
 client at `/mcp` as shown in [the MCP doc](mcp.md).
@@ -44,7 +42,7 @@ drain runs instead of `docker stop` waiting out its timeout.
 
 ## Hardened Compose template
 
-The repository's `docker-compose.yml` is a hardened template for operators who want Compose. It uses `cap_drop: [ALL]`, `no-new-privileges`, a read-only root with a size-capped `noexec,nosuid` tmpfs, `init: true`, 512 MiB, 1 CPU, 256 PIDs, bounded json-file logs, an explicit restart policy, and loopback-only published ports. Change its image stanza from the local build to a pinned `psyb0t/vibecheck:vX.Y.Z` image when using it outside a source checkout.
+`docker-compose.yml` lives in this source repository. It is not bundled into the Docker image. Clone the repository if you want the Compose template, then copy `.env.example` to a gitignored `.env`, set the TypeSafe key, and run `docker compose up -d` from the checkout. The template uses `cap_drop: [ALL]`, `no-new-privileges`, a read-only root with a size-capped `noexec,nosuid` tmpfs, `init: true`, 512 MiB, 1 CPU, 256 PIDs, bounded json-file logs, an explicit restart policy, and loopback-only published ports. To run a release image, replace both its `build:` block and `image: vibecheck:local` with a pinned `image: psyb0t/vibecheck:vX.Y.Z`.
 
 `make audit-compose` checks the file against that floor and fails on banned
 settings, unintended public ports, missing limits, or missing log bounds. Run
@@ -85,10 +83,7 @@ keeps evaluations indefinitely.
 
 ## Configuration
 
-`.env.example` documents every variable with its default. Configuration is
-read once at startup and never reloaded, so a changed value takes effect on
-the next restart. An invalid value fails the process before it serves a
-request rather than surfacing on the first call that happens to read it.
+`.env.example` documents the Compose inputs and operator settings. Container listener addresses are image defaults, so host exposure belongs in Docker's `ports` mapping. Configuration is read once at startup and never reloaded, so a changed value takes effect on the next restart. An invalid value fails the process before it serves a request rather than surfacing on the first call that happens to read it.
 
 The values worth deciding before the first start:
 
@@ -109,7 +104,7 @@ provider nobody is waiting on, and the retention loop stops with the process.
 
 ## Upgrading
 
-Tagged releases publish immutable images such as `psyb0t/vibecheck:v0.3.0`.
+Tagged releases publish immutable images such as `psyb0t/vibecheck:v0.4.0`.
 Pin one. `latest` is for trying it out, not for a deployment you intend to
 keep.
 

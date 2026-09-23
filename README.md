@@ -41,13 +41,13 @@ Start the container:
 docker run -d --name vibecheck \
   --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
-  -e VIBECHECK_HTTP_LISTEN_ADDRESS=0.0.0.0:8080 \
-  -e VIBECHECK_METRICS_LISTEN_ADDRESS=0.0.0.0:9091 \
   -e VIBECHECK_TYPESAFE_API_KEY="$TYPESAFE_API_KEY" \
   -v "$PWD/policies:/config/policies:ro" \
   -v vibecheck-data:/data \
   psyb0t/vibecheck:latest run
 ```
+
+The image listens on fixed container ports. `-p 127.0.0.1:8080:8080` is the exposure decision: the left side is the host address and port, the right side is the container port. To use host port 8181 instead, write `-p 127.0.0.1:8181:8080`. Metrics stay on the unexposed container port 9091.
 
 `TYPESAFE_API_KEY` must contain a TypeSafe API key. Vibecheck reports not ready when the key is missing, but `/healthz` stays available so an operator can diagnose the configuration.
 
@@ -57,7 +57,7 @@ Check readiness:
 curl -fsS http://127.0.0.1:8080/ready
 ```
 
-Use `latest` to try Vibecheck. Pin an immutable release such as `psyb0t/vibecheck:v0.3.0` for a deployment you want to keep.
+Use `latest` to try Vibecheck. Pin an immutable release such as `psyb0t/vibecheck:v0.4.0` for a deployment you want to keep.
 
 Send the decision request:
 
@@ -143,9 +143,9 @@ Use `GET /v1/evaluations` to page through decisions, `GET /v1/evaluations/{id}` 
 
 ## Operate it
 
-The public listener serves REST under `/v1`, MCP at `/mcp`, plus `/healthz` and `/ready`. Prometheus metrics live on the separate internal listener at `/metrics`; do not publish that listener to the internet.
+The image uses fixed container listeners: REST, MCP, `/healthz`, and `/ready` on `0.0.0.0:8080`, Prometheus metrics on `0.0.0.0:9091`. Docker port publishing controls host exposure. Publish only port 8080, normally to loopback. Do not publish the metrics listener to the internet.
 
-Configuration comes from environment variables and is read once at startup. Invalid values fail startup. [.env.example](.env.example) lists every setting and default. [Deployment](docs/deployment.md) covers hardening, PostgreSQL, retention, shutdown, and upgrades.
+Configuration comes from environment variables and is read once at startup. Invalid values fail startup. [.env.example](.env.example) lists the Compose inputs and operator settings. [Deployment](docs/deployment.md) covers hardening, PostgreSQL, retention, shutdown, and upgrades.
 
 ## Give an agent the manual
 

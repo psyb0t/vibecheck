@@ -36,13 +36,14 @@ type acceptanceVector struct {
 }
 
 // scriptedAnswer is the readable shorthand a vector uses. The loader expands
-// it into a full decision.Answer, including a distribution that satisfies the
-// provider contract, so a vector author does not hand-write probabilities.
+// it into a full decision.Answer and only synthesizes a distribution when the
+// vector does not need exact probability values.
 type scriptedAnswer struct {
-	Noul       *float64 `yaml:"noul"`
-	Score      *float64 `yaml:"score"`
-	Choice     string   `yaml:"choice"`
-	Confidence *float64 `yaml:"confidence"`
+	Noul          *float64           `yaml:"noul"`
+	Score         *float64           `yaml:"score"`
+	Choice        string             `yaml:"choice"`
+	Confidence    *float64           `yaml:"confidence"`
+	Probabilities map[string]float64 `yaml:"probabilities"`
 }
 
 type acceptanceExpectation struct {
@@ -69,7 +70,7 @@ func TestShippedExamplePolicyCompiles(t *testing.T) {
 		compiled.QuestionIDs,
 	)
 	assert.Len(t, compiled.PreRules, 1)
-	assert.Len(t, compiled.DecisionRules, 3)
+	assert.Len(t, compiled.DecisionRules, 4)
 }
 
 func TestSupportTicketRouterCompiles(t *testing.T) {
@@ -293,7 +294,11 @@ func expandAnswers(
 				Choice:        script.Choice,
 				Confidence:    *script.Confidence,
 				HasConfidence: true,
-				Probabilities: spreadOver(question.ChoiceKeys, script.Choice),
+				Probabilities: scriptedDistribution(
+					script.Probabilities,
+					question.ChoiceKeys,
+					script.Choice,
+				),
 			}
 
 		case decision.QuestionTypeScore:
@@ -309,7 +314,8 @@ func expandAnswers(
 				Score:         *script.Score,
 				Confidence:    *script.Confidence,
 				HasConfidence: true,
-				Probabilities: spreadOver(
+				Probabilities: scriptedDistribution(
+					script.Probabilities,
 					levelKeys(question),
 					nearestLevel(question, *script.Score),
 				),
@@ -319,6 +325,18 @@ func expandAnswers(
 	}
 
 	return answers
+}
+
+func scriptedDistribution(
+	provided map[string]float64,
+	keys []string,
+	selected string,
+) map[string]float64 {
+	if provided != nil {
+		return provided
+	}
+
+	return spreadOver(keys, selected)
 }
 
 // spreadOver builds a distribution summing to exactly 1 with most of the mass

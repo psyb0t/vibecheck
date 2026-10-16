@@ -13,6 +13,7 @@ WIP.md
 
 # Local release tooling
 git-update.sh
+git-update.sh.debot
 
 # Secrets and local configuration
 .env

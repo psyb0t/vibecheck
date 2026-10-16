@@ -20,6 +20,13 @@
 cmd/init.go
 cmd/commands.go
 
+# Project linter policy: depguard allowlist and ireturn/tagliatelle exceptions
+# for vibecheck's own packages. The framework baseline drops them.
+.golangci.yml
+
+# Project CI permissions for the collaborators-only caller.
+.github/workflows/collaborators-only.yml
+
 # Note: docs/ and tests/ are always protected by the update's mechanical floor,
 # so they never need an entry here. Both are yours from the moment you scaffold:
 # docs/ is prose you rewrite for your app, tests/ is the testcontainers harness

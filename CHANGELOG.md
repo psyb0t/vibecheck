@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.1] - 2026-10-16
+
+- Updated servicepack from v1.9.3 to v1.10.0. The project `.golangci.yml` and the `collaborators-only.yml` workflow permissions are kept, and `.servicepackupdateignore` now protects both from later framework updates.
+- Moved the Docker images and `go.mod` to Go 1.26.9, which clears the Go standard library vulnerabilities that `make sec` reported for Go 1.26.6.
+
 ## [0.4.0] - 2026-09-22
 
 - Added `field: probability` with a named `probabilityKey`, so policy rules can route on a declared choice option or score level even when Jev selected another answer.

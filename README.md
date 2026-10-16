@@ -57,7 +57,7 @@ Check readiness:
 curl -fsS http://127.0.0.1:8080/ready
 ```
 
-Use `latest` to try Vibecheck. Pin an immutable release such as `psyb0t/vibecheck:v0.4.0` for a deployment you want to keep.
+Use `latest` to try Vibecheck. Pin an immutable release such as `psyb0t/vibecheck:v0.4.1` for a deployment you want to keep.
 
 Send the decision request:
 

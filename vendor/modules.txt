@@ -1686,7 +1686,7 @@ gorm.io/gen/internal/model
 gorm.io/gen/internal/parser
 gorm.io/gen/internal/template
 gorm.io/gen/internal/utils/pools
-# gorm.io/gorm v1.31.1
+# gorm.io/gorm v1.31.2
 ## explicit; go 1.18
 gorm.io/gorm
 gorm.io/gorm/callbacks

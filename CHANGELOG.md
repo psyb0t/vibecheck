@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.2] - 2026-10-17
+
+- Documentation only. The README and the deployment guide run `psyb0t/vibecheck:latest` and upgrade by pulling it again, instead of pinning a release tag.
+
 ## [0.4.1] - 2026-10-16
 
 - Updated servicepack from v1.9.3 to v1.10.0. The project `.golangci.yml` and the `collaborators-only.yml` workflow permissions are kept, and `.servicepackupdateignore` now protects both from later framework updates.

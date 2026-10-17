@@ -104,9 +104,8 @@ provider nobody is waiting on, and the retention loop stops with the process.
 
 ## Upgrading
 
-Tagged releases publish immutable images such as `psyb0t/vibecheck:v0.4.1`.
-Pin one. `latest` is for trying it out, not for a deployment you intend to
-keep.
+Every release updates `psyb0t/vibecheck:latest`. Pull it and recreate the
+container to upgrade.
 
 Migrations run on start, so an upgrade is a pull and a restart. Take a
 database backup first; the down migrations exist but a restore is faster.
